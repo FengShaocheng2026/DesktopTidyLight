@@ -6,6 +6,8 @@
 
 第一版采用 C++17、Win32/Shell、MSVC 和 Windows SDK。先尝试让**Explorer 的原生桌面图标**按组排在桌面上，再画轻量分组框。这样图标的双击、右键与文件操作仍由 Explorer 负责，不需要复制图标或移动真实文件。Windows 公开的 [IFolderView::SelectAndPositionItems](https://learn.microsoft.com/en-us/windows/win32/api/shobjidl_core/nf-shobjidl_core-ifolderview-selectandpositionitems)提供图标定位能力；它是否适用于目标 Windows 11 桌面及所有必要场景，仍须原型验证。
 
+这里的“分组”是本软件保存的成员关系和可见区域，不是把图标装入 Windows 提供的原生分组容器。桌面项目也不限于快捷方式，还包括普通文件、文件夹和虚拟 Shell 项目；不能靠修改 `.lnk` 文件实现通用分组。位置接口只能证明可尝试调整图标坐标，不能证明分组框能与图标正确叠放、接收拖放或在“自动排列”开启时保持布局。不要把“隐藏原图标并自己画一份”当作已经确定的实现。
+
 若分组框无法稳定放在图标周围、拖动行为会误触文件操作，或 Explorer 重启后布局不可恢复，则暂停此路径。不要用移走真实文件、隐藏所有桌面图标或依赖未公开窗口结构来“完成”需求。备选交互需要重新评审后再开发。
 
 Windows 11 主右键菜单的接入也单独验证。微软的[菜单扩展文档](https://learn.microsoft.com/en-us/windows/apps/desktop/modernize/integrate-packaged-app-with-file-explorer)使用 `IExplorerCommand` 和应用包身份；未打包程序可采用 sparse package。先验证命令能否只在桌面空白处出现、能否把点击位置交给主程序，以及安装和卸载是否可靠。旧式注册可能落在“显示更多选项”，不能未经验证就把它当作 PRD 所需的桌面右键入口。
