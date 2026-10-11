@@ -1,58 +1,36 @@
 # 技术选型与开发方式
 
-日期：2026-10-11。目标：Windows 11 x64、普通用户权限、本地运行、常驻时尽量少占资源。此处区分“验证用工具”和“最终发布技术栈”；后者目前尚未确定。
+日期：2026-10-11。第一版只发布 Windows 11 x64；为未来 macOS 版保留可复用的核心，但不承诺两平台的桌面图标交互完全相同。选型只依据产品目标，不依据当前开发机是否装了某套工具。
 
-## 先纠正一个误区
+## 两个目标能否兼顾
 
-- SDK 是**开发和编译工具**，用户运行程序需要的是相应运行时，或者应用自带运行时。把 SDK 从 10 降到 8，本身不会让程序少占内存；改变目标运行时后，也不能仅凭版本号判断哪个更省资源。[微软的安装说明](https://learn.microsoft.com/en-us/dotnet/core/install/windows)区分了 SDK 与运行时。
-- 最初选 .NET 10 是考虑维护期，不是已有性能测量。[微软支持页](https://learn.microsoft.com/en-us/dotnet/core/releases-and-support)显示 .NET 8 到 2026 年 11 月结束支持，.NET 10 到 2028 年 11 月。不能因为 8 的数字小就把即将停止支持的版本定为长期发布目标。
-
-## 原生优先方案
-
-若将**最低常驻占用**作为首要目标，优先用 **C++17 + Win32/Shell API** 做产品原型：一个进程、普通窗口与托盘，不引入 .NET、WinUI、浏览器内核或后台服务。[微软的 Win32 说明](https://learn.microsoft.com/en-us/windows/win32/desktop-programming)确认它不依赖托管运行时；[C++ 桌面选型说明](https://learn.microsoft.com/en-us/cpp/windows/overview-of-windows-programming-in-cpp?view=msvc-170)也把精确控制内存和省电列为选择原生 C++ 的理由。这是更合适的**轻量化方向**，仍不能代替实际测量。
-
-- 界面先用 Win32 窗口和系统绘制能力，只在需要半透明效果时使用[分层窗口](https://learn.microsoft.com/en-us/windows/desktop/api/winuser/nf-winuser-updatelayeredwindow)；不做持续动画或固定频率刷新。
-- 托盘使用 Windows 的 [`Shell_NotifyIcon`](https://learn.microsoft.com/en-us/windows/win32/shell/notification-area)。桌面项目读取和操作优先使用公开的 Shell 接口。
-- 先只实现一个分组框、一个测试图标、打开与恢复。原生路线仍需验证能否安全处理**原图标的显示与恢复**。微软公开的 [`IFolderView`](https://learn.microsoft.com/en-us/windows/win32/api/shobjidl_core/nn-shobjidl_core-ifolderview) 与 [`IFolderView2`](https://learn.microsoft.com/en-us/windows/win32/api/shobjidl_core/nn-shobjidl_core-ifolderview2)列出读取、选择、定位等操作，但从这些接口列表**不能直接得出可靠隐藏单个原图标的办法**；这是原型要解决的风险，而不是语言选择能自动解决的问题。
-- 本机已有 Visual Studio C++ 编译工具，但 Windows SDK 头文件尚未安装；原生原型开始前需补齐 SDK。保留 C# WinForms 作为开发成本较低的备选路线。
-
-## 备选路线及版本取舍
-
-| 路线 | 资源与发布 | 开发成本 | 当前判断 |
-| --- | --- | --- | --- |
-| C# + WinForms + .NET 8 | 需要 .NET 8 桌面运行时或自带运行时；占用须实测；支持即将结束 | 本机已有 .NET 8 SDK，可直接验证 | 若原生开发明显拖慢进度，可用于**一次性对照原型**；不作为正式发布版本 |
-| C# + WinForms + .NET 10 | 同样需要对应桌面运行时或自带运行时；没有证据表明它一定比 8 更占资源 | 开发与调试路径直接，但本机尚缺 .NET 10 SDK | 若 C# 原型满足资源目标，正式开发时再选这个长期支持版 |
-| C# + WinForms + .NET Framework 4.8.1 | [Windows 11 自带](https://learn.microsoft.com/en-us/dotnet/framework/install/)，本机也已安装，可减少额外运行时部署；内存仍须实测 | 旧框架，未来开发受限；微软建议新项目用现代 .NET | 不因其版本号小就默认选择，只有部署或实测显示明显收益时再考虑 |
-
-目前以 C++/Win32 为首选，但仍以桌面集成安全性和代表性资源测量决定最终方案。WinForms 提供控件、事件与自绘能力，若原生实现成本超出收益，可退回 C# 路线。[微软概览](https://learn.microsoft.com/en-us/dotnet/desktop/winforms/overview/)。
-
-## 与技术栈无关的实现原则
-
-- **只在必要处直接调用 Windows 原生接口**：桌面图标、托盘、文件图标与右键菜单若所选框架现成能力不足，再封装对应 Win32/Shell API。优先使用公开、受支持的接口，不把依赖资源管理器内部窗口结构的技巧当成已可靠的方案。
-- **本地 JSON 配置**：保存组名、位置、大小、成员和设置；避免为了少量布局数据增加数据库。写入需采用临时文件加替换，并保留可恢复的上一个版本，防止异常退出破坏布局。
-- **自启动**：用户开启时写入当前用户的 `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`，关闭或卸载时只删除本软件的值，不使用系统服务或管理员权限。Windows 会在用户登录时执行，且用户可在系统启动应用设置中管理；它不表示“尚未登录时运行”。[微软 Run 键说明](https://learn.microsoft.com/en-us/windows/win32/setupapi/run-and-runonce-registry-keys)、[启动应用说明](https://learn.microsoft.com/en-us/windows/win32/w8cookbook/startup-apps)。
-
-## 其他界面方案
-
-| 方案 | 当前取舍 |
+| 目标 | 判断 |
 | --- | --- |
-| Rust + 原生 Windows API | 同样适合系统工具，但桌面 Shell 交互仍需处理，且本机是否具备完整 Windows 编译工具链尚未确认；此阶段不能保证更快交付。 |
-| WPF | 视觉定制较方便；分组框第一版界面简单，暂时没有足够理由引入另一套绘制与布局方式。 |
-| WinUI 3 | 现代控件较好，但[微软文档](https://learn.microsoft.com/en-us/windows/apps/package-and-deploy/unpackage-winui-app)说明未打包应用需处理 Windows App SDK 运行时，独立部署会增加输出体积；当前功能不需要这些额外条件。 |
-| Electron / 网页界面 | 没有网页功能需求；额外运行环境对常驻小工具的收益有限，暂不引入。 |
+| 极低常驻占用 | C++ 与 Rust 都可编译为原生程序，不需要 .NET 或浏览器运行时。实际内存、启动和响应还取决于窗口数量、图标缓存、绘制方式及是否轮询，不能仅凭语言推定。[微软 Win32 说明](https://learn.microsoft.com/en-us/windows/win32/desktop-programming)、[Rust 平台支持](https://doc.rust-lang.org/rustc/platform-support.html)。 |
+| 未来 macOS 扩展 | 两种语言都能共享分组模型、布局规则、配置与恢复逻辑；窗口、文件图标、系统菜单、自启动和桌面集成必须分别实现。**共享代码不等于 Windows 版本直接能在 Mac 上运行**。[Apple AppKit](https://developer.apple.com/documentation/appkit)、[Objective-C++ 互操作](https://developer.apple.com/library/archive/documentation/Porting/Conceptual/PortingUnix/environments/environments.html)。 |
 
-这些是工程取舍，不是跨框架性能排行榜。发布形态先比较依赖已安装运行时与自包含包的体积、启动和内存；不预设“单文件”必然更轻。
+## 推荐路线：C++ 核心 + 各平台原生界面
 
-## 开发顺序与停靠点
+- **共享核心（C++17）**：只放分组数据、布局计算、配置格式、异常恢复状态等与系统无关的逻辑。不让 Win32 类型、Windows 路径或注册表进入核心。
+- **Windows 11 实现**：Win32 窗口、Shell 图标枚举与打开、系统托盘；按系统事件更新，不设持续绘制或固定频率扫描。第一版只实现这套平台层。
+- **未来 macOS 实现**：用 Objective-C++ 接 AppKit 的窗口和菜单栏，使用 NSWorkspace 处理文件打开，登录自启动走 macOS 的 SMAppService；复用核心，但重新做 Finder 桌面集成和实机验收。[AppKit](https://developer.apple.com/documentation/appkit)、[NSWorkspace](https://developer.apple.com/documentation/appkit/nsworkspace)、[NSStatusItem](https://developer.apple.com/documentation/appkit/nsstatusitem)、[SMAppService](https://developer.apple.com/documentation/servicemanagement/smappservice)。
+- **绘制**：先用系统原生控件/绘制；半透明分组框确有需要时再用 Windows 分层窗口，macOS 则用 AppKit 对应能力。不引入 Qt、Electron 或 WebView 作为整套界面运行环境。
 
-1. **小原型**：补齐 Windows SDK 后，在隔离的 Windows 11 测试环境中用原生 C++ 只实现一个分组和一个测试图标。验证显示、打开、右键、退出恢复、强制结束、资源管理器重启。不能安全恢复就先调整设计，不继续做完整界面。
-2. **资源测量与定栈**：同一机器、同一场景下记录冷启动时间、空闲私有内存与工作集、空闲 CPU、10/100 个图标时的响应，以及发布包大小。先排除轮询和资源泄漏；若原生实现成本明显高于收益，再用现有 .NET 8 SDK 做同功能对照原型，记录两条路线的开发与维护成本。
-3. **最小可用版本**：分组增删改、手动加入/移出项目、本地布局保存、托盘、恢复入口、自启动开关。每完成一条需求，按 `mvp.md` 的验收结果手工验证。
-4. **发布准备**：确定许可证、发布方式、卸载恢复流程和干净机器验证，再公开可下载版本。
+这条路线不是说 C++ 必然比 Rust 快。选 C++ 的主要原因是 Windows 原生 API 可直接使用，未来 macOS 的 Cocoa 层有[官方说明的 Objective-C++ 桥接方式](https://developer.apple.com/library/archive/documentation/Porting/Conceptual/PortingUnix/environments/environments.html)，能保持一份原生核心而不过早引入另一套语言边界。代价是内存与资源所有权需要更仔细的实现和测试。[微软选型说明](https://learn.microsoft.com/en-us/cpp/windows/overview-of-windows-programming-in-cpp?view=msvc-170)把精确控制内存和耗电列为 C++ 的适用场景。
 
-## 开发习惯
+## Rust 值得保留为备选
 
-- 用 Git 小步提交；自动化检查集中在布局读写、恢复状态和自启动开关等有实际风险的逻辑。桌面交互用隔离环境实测。
-- 开发和测试时不触碰日常桌面的真实文件。测试图标放在专门的测试账户或虚拟机。
-- 不用固定频率轮询桌面；优先响应 Windows 事件。若必须轮询，测量其空闲 CPU 和异常恢复行为。
-- 原型通过前，不增加自动更新、遥测、账号、云服务或插件系统。
+Rust 同样没有垃圾回收器，官方支持 Windows 和 macOS 目标；微软的 [windows-rs](https://github.com/microsoft/windows-rs)提供 Win32/COM 接口。Rust 的所有权检查对共享核心和恢复逻辑有价值，但 Windows Shell 边界仍有不安全的系统调用，macOS AppKit 也需要绑定或桥接。它**不会自动带来更低的资源占用或现成的跨平台桌面界面**。如果原生原型表明 C++ 的安全性和维护成本难以控制，可以在核心尚小时改选 Rust；届时仍保持两个平台分别集成。
+
+## 真正限制 macOS 版的地方
+
+Windows 的公开 [IFolderView](https://learn.microsoft.com/en-us/windows/win32/api/shobjidl_core/nn-shobjidl_core-ifolderview) / [IFolderView2](https://learn.microsoft.com/en-us/windows/win32/api/shobjidl_core/nn-shobjidl_core-ifolderview2) 能读、选和定位项目，但尚未确认可靠地单独隐藏原桌面图标并在崩溃后恢复。Apple 的 [Finder Sync](https://developer.apple.com/documentation/findersync)官方用途是文件同步相关的徽标、菜单和工具栏，不能从文档推出它能接管 Finder 桌面图标。因此 macOS 版须单独验证原图标管理、权限和恢复；若做不到，不应把“只显示自绘分组框”包装成与 Windows 完全一样的功能。沙盒应用访问桌面文件还需考虑[用户授权和持久访问](https://developer.apple.com/documentation/security/accessing-files-from-the-macos-app-sandbox)。
+
+## 开发顺序
+
+1. 在隔离的 Windows 11 环境做一个原生小原型：一个分组、一个测试图标，验证显示、打开、右键、退出和强制结束后的恢复，以及 Explorer 重启。先解决文件安全问题。
+2. 记录冷启动、空闲私有内存/工作集、空闲 CPU、10/100 图标响应和包大小。若不达标，先定位窗口、缓存和绘制造成的开销；切换 Rust 不应被当作自动降低占用的办法。不为语言之争提前维护双实现。
+3. 完成 Windows MVP：手动分组、布局保存、托盘、恢复入口和可选登录自启动。各项按 [MVP 需求](mvp.md)验收。
+4. 在共享核心和交互设计定型前，尽早用 Mac 实机做 Finder 桌面交互与权限原型，确认相同的“不移动文件、原图标可恢复”要求能否成立；这项调研不阻塞 Windows 第一版发布，但在验证前不承诺 macOS 有完全相同的体验。
+
+配置保持本地、带版本、可恢复；分组本身不移动或删除真实文件。开源许可证和发布包格式在首个可运行原型后确定。
