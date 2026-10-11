@@ -7,11 +7,12 @@
 - [第一版产品需求（PRD）](docs/prd.md)
 - [技术选型与开发方式](docs/technical-approach.md)
 - [技术实现与验证计划](docs/technical-design.md)
-- [C# 主程序骨架](src/DesktopTidyLight/DesktopTidyLight.csproj)
-- [桌面接口探测工具](tools/DesktopProbe/README.md)
+- [C# 主程序](src/DesktopTidyLight/DesktopTidyLight.csproj)
 
 设计目标：让桌面上的文件、文件夹和快捷方式容易分组、容易找到；退出或异常中断后仍能安全回到普通 Windows 桌面。
 
-第一版以 Windows 11 为目标，主程序采用 C#、WinForms 和 .NET Framework 4.8；现有 C++ 工具用于验证 Windows 桌面接口。开源协议和发布方式稍后确定。
+第一版以 Windows 11 为目标，主程序采用 C#、WinForms 和 .NET Framework 4.8。开源协议和发布方式稍后确定。
 
-主程序目前只有单实例和托盘退出的基础骨架，还没有桌面分组功能。开发机可运行 `dotnet build src/DesktopTidyLight/DesktopTidyLight.csproj -c Release` 编译；构建时会还原 .NET Framework 4.8 参考程序集，不要求用户安装该构建包。
+当前是**可运行原型，尚未通过 MVP 验收**。已写入分组框、原生图标位置读取与恢复、布局保存、托盘、设置、自启动开关和桌面右键的旧式菜单入口。Windows 11 主右键菜单、真实拖放与多选、Win+D、Explorer 重启、异常恢复和不同缩放仍待验收。[技术实现文档](docs/technical-design.md)记录了已验证的范围。
+
+开发机运行 `dotnet build src/DesktopTidyLight/DesktopTidyLight.csproj -c Release`。首次使用前需在 Windows 桌面关闭“自动排列图标”，程序不会替用户改变该设置。`--restore` 可独立恢复已记录图标的位置；`--unregister` 清理本程序创建的桌面右键入口和自启动项。旧 C++ 探测工具已删除。

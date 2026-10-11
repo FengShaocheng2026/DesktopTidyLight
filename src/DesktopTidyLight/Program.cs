@@ -1,5 +1,6 @@
 using System;
-using System.Drawing;
+using System.IO;
+using System.Runtime.InteropServices;
 using System.Threading;
 using System.Windows.Forms;
 
@@ -7,32 +8,69 @@ namespace DesktopTidyLight
 {
     internal static class Program
     {
+        [DllImport("user32.dll")]
+        private static extern bool SetProcessDpiAwarenessContext(IntPtr value);
+
         [STAThread]
-        private static void Main()
+        private static void Main(string[] args)
         {
+            SetProcessDpiAwarenessContext(new IntPtr(-4));
+            if (args.Length == 2 && args[0] == "--diagnose")
+            {
+                try
+                {
+                    using (var desktop = new DesktopShell())
+                        File.WriteAllText(args[1], "items=" + desktop.Items().Count + ", autoArrange=" + desktop.AutoArrange);
+                }
+                catch (Exception error) { File.WriteAllText(args[1], error.ToString()); }
+                return;
+            }
             bool createdNew;
             using (var mutex = new Mutex(true, @"Local\DesktopTidyLight", out createdNew))
             {
                 if (!createdNew)
                 {
+                    if (args.Length == 1 && args[0] == "--new-group")
+                    {
+                        for (int attempt = 0; attempt < 5; attempt++)
+                        {
+                            try
+                            {
+                                using (var signal = EventWaitHandle.OpenExisting(@"Local\DesktopTidyLight.NewGroup")) signal.Set();
+                                break;
+                            }
+                            catch (WaitHandleCannotBeOpenedException) { Thread.Sleep(100); }
+                        }
+                    }
                     return;
                 }
 
                 Application.EnableVisualStyles();
                 Application.SetCompatibleTextRenderingDefault(false);
-
-                using (var menu = new ContextMenuStrip())
-                using (var tray = new NotifyIcon())
+                try
                 {
-                    menu.Items.Add("退出", null, (sender, args) => Application.ExitThread());
-                    tray.Icon = SystemIcons.Application;
-                    tray.Text = "DesktopTidyLight";
-                    tray.ContextMenuStrip = menu;
-                    tray.Visible = true;
-                    Application.Run();
-                    tray.Visible = false;
+                    if (args.Length == 1 && args[0] == "--unregister")
+                    {
+                        DesktopMenu.Unregister();
+                        return;
+                    }
+                    Layout layout = LayoutStore.Load();
+                    if (args.Length == 1 && args[0] == "--restore")
+                    {
+                        TidyContext.RestoreMembers(layout.Members);
+                        using (var desktop = new DesktopShell())
+                            layout.Snapshots = desktop.Items().ConvertAll(item => new PositionData { Id = item.Id, X = item.Position.X, Y = item.Position.Y });
+                        layout.Members.Clear();
+                        LayoutStore.Save(layout);
+                        return;
+                    }
+                    DesktopMenu.Register();
+                    using (var signal = new EventWaitHandle(false, EventResetMode.AutoReset, @"Local\DesktopTidyLight.NewGroup"))
+                        Application.Run(new TidyContext(layout, signal, args.Length == 1 && args[0] == "--new-group"));
                 }
+                catch (Exception error) { MessageBox.Show(error.Message, "DesktopTidyLight", MessageBoxButtons.OK, MessageBoxIcon.Error); }
             }
         }
+
     }
 }
