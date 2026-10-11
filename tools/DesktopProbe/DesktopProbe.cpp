@@ -48,8 +48,9 @@ static HRESULT GetDesktopView(ComPtr<IFolderView>& view) {
 
 int wmain(int argc, wchar_t** argv) {
     const bool list = argc == 2 && std::wcscmp(argv[1], L"--list") == 0;
-    if (argc > 1 && !list) {
-        std::fwprintf(stderr, L"Usage: DesktopProbe.exe [--list]\n");
+    const bool selected = argc == 2 && std::wcscmp(argv[1], L"--selected") == 0;
+    if (argc > 1 && !list && !selected) {
+        std::fwprintf(stderr, L"Usage: DesktopProbe.exe [--list|--selected]\n");
         return 2;
     }
 
@@ -61,10 +62,19 @@ int wmain(int argc, wchar_t** argv) {
 
     ComPtr<IFolderView> view;
     if (!Check(GetDesktopView(view), L"GetDesktopView")) return 1;
+    if (selected) {
+        int selectedCount = 0;
+        if (!Check(view->ItemCount(SVGIO_SELECTION, &selectedCount), L"ItemCount")) return 1;
+        if (selectedCount == 0) {
+            std::wprintf(L"Selected items: 0, position errors: 0\n");
+            return 0;
+        }
+    }
     ComPtr<IShellFolder> folder;
     if (!Check(view->GetFolder(IID_PPV_ARGS(&folder)), L"GetFolder")) return 1;
     ComPtr<IEnumIDList> items;
-    if (!Check(view->Items(SVGIO_ALLVIEW, IID_PPV_ARGS(&items)), L"Items")) return 1;
+    if (!Check(view->Items(selected ? SVGIO_SELECTION : SVGIO_ALLVIEW,
+                           IID_PPV_ARGS(&items)), L"Items")) return 1;
 
     unsigned count = 0;
     unsigned positionErrors = 0;
@@ -95,7 +105,8 @@ int wmain(int argc, wchar_t** argv) {
 
     const HRESULT autoArrange = view->GetAutoArrange();
     if (!Check(autoArrange, L"GetAutoArrange")) return 1;
-    std::wprintf(L"Items: %u, position errors: %u, name errors: %u, auto arrange: %ls\n",
+    std::wprintf(L"%ls: %u, position errors: %u, name errors: %u, auto arrange: %ls\n",
+                 selected ? L"Selected items" : L"Items",
                  count, positionErrors, nameErrors,
                  autoArrange == S_OK ? L"on" : L"off");
     return positionErrors == 0 ? 0 : 1;
