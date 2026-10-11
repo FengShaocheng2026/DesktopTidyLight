@@ -84,3 +84,14 @@ P0/P1 是技术风险关口，不能用“界面看起来像分组”替代真�
 - 两个临时文件多选拖入同一格子、随格子一起移动、再跨组移动，成员记录仍为两项，文件路径未改变。格子标题栏的改名和删除操作已用真实鼠标触发，并验证布局记录更新及组内文件恢复。
 - 首次使用时自动排列开启，旧版新建分组会被直接拒绝。现改为创建前保存原设置、临时关闭排列，退出恢复时还原。**自动排列持续开启与当前原生图标定位方案冲突**，不能声称已支持两者同时生效。
 - Explorer 重启、开机自启动、不同缩放和长期使用仍未通过验收。M1–M7 **均未宣告完整通过**。
+
+### 桌面右键只响提示音的修复
+
+2026-10-11 检查发现：主程序和测试进程均已退出，但 Explorer 的 `Progman` 窗口仍处于禁用输入状态。已恢复该窗口输入。分组窗口由桌面持有，弹窗不能隐式选用桌面或沿分组所有者关系选取桌面作为模态窗口所有者。所有改名、设置、确认和错误弹窗现在明确使用本进程独立窗口作为所有者。
+
+`tests/DialogOwnershipCheck.cs` 验证桌面持有的分组窗口激活后，普通弹窗和消息框打开期间及关闭后，桌面始终保持启用。检查已在本机通过。运行方式（会短暂显示自动关闭的测试弹窗）：
+
+```powershell
+& "$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\csc.exe" /nologo /target:exe /platform:x64 /out:build\DialogOwnershipCheck.exe /r:System.Windows.Forms.dll /r:System.Drawing.dll src\DesktopTidyLight\Dialogs.cs tests\DialogOwnershipCheck.cs
+& .\build\DialogOwnershipCheck.exe
+```

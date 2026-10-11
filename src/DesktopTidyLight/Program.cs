@@ -73,7 +73,7 @@ namespace DesktopTidyLight
                     using (var signal = new EventWaitHandle(false, EventResetMode.AutoReset, @"Local\DesktopTidyLight.NewGroup"))
                         Application.Run(new TidyContext(layout, signal, args.Length == 1 && args[0] == "--new-group"));
                 }
-                catch (Exception error) { MessageBox.Show(error.Message, "DesktopTidyLight", MessageBoxButtons.OK, MessageBoxIcon.Error); }
+                catch (Exception error) { Dialogs.Message(error.Message, "DesktopTidyLight", MessageBoxButtons.OK, MessageBoxIcon.Error); }
             }
         }
 

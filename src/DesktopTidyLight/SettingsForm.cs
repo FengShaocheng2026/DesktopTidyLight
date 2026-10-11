@@ -31,7 +31,7 @@ namespace DesktopTidyLight
                     reverting = true;
                     start.Checked = !start.Checked;
                     reverting = false;
-                    MessageBox.Show(error.Message, "自启动设置失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    Dialogs.Message(error.Message, "自启动设置失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 }
             };
             var arrange = new Label

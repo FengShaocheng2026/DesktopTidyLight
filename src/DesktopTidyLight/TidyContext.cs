@@ -255,7 +255,7 @@ namespace DesktopTidyLight
 
         private void DeleteGroup(GroupFrame frame)
         {
-            if (MessageBox.Show("删除分组后，其图标将回到加入前的位置。", "删除分组", MessageBoxButtons.OKCancel, MessageBoxIcon.Question) != DialogResult.OK) return;
+            if (Dialogs.Message("删除分组后，其图标将回到加入前的位置。", "删除分组", MessageBoxButtons.OKCancel, MessageBoxIcon.Question) != DialogResult.OK) return;
             var removed = layout.Members.Where(value => value.GroupId == frame.Data.Id).ToList();
             try
             {
@@ -335,7 +335,7 @@ namespace DesktopTidyLight
             {
                 using (var desktop = new DesktopShell())
                 using (var settings = new SettingsForm(ReadAutoStart(), WriteAutoStart, desktop.AutoArrange))
-                    settings.ShowDialog();
+                    Dialogs.Show(settings);
             }
             catch (Exception error) { Alert("无法打开设置：" + error.Message); }
         }
@@ -355,7 +355,7 @@ namespace DesktopTidyLight
             }
         }
 
-        private static void Alert(string message) { MessageBox.Show(message, "DesktopTidyLight", MessageBoxButtons.OK, MessageBoxIcon.Information); }
+        private static void Alert(string message) { Dialogs.Message(message, "DesktopTidyLight", MessageBoxButtons.OK, MessageBoxIcon.Information); }
 
         protected override void ExitThreadCore()
         {

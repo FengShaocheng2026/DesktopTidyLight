@@ -86,7 +86,7 @@ namespace DesktopTidyLight
                 dialog.Controls.Add(save);
                 dialog.AcceptButton = save;
                 dialog.Shown += (sender, args) => { input.Focus(); input.SelectAll(); };
-                if (dialog.ShowDialog() != DialogResult.OK) return;
+                if (Dialogs.Show(dialog) != DialogResult.OK) return;
                 data.Name = string.IsNullOrWhiteSpace(input.Text) ? "新建分组" : input.Text.Trim();
                 Invalidate();
                 LayoutChanged?.Invoke(this, ScreenBounds);
