@@ -7,16 +7,24 @@
 - SDK 是**开发和编译工具**，用户运行程序需要的是相应运行时，或者应用自带运行时。把 SDK 从 10 降到 8，本身不会让程序少占内存；改变目标运行时后，也不能仅凭版本号判断哪个更省资源。[微软的安装说明](https://learn.microsoft.com/en-us/dotnet/core/install/windows)区分了 SDK 与运行时。
 - 最初选 .NET 10 是考虑维护期，不是已有性能测量。[微软支持页](https://learn.microsoft.com/en-us/dotnet/core/releases-and-support)显示 .NET 8 到 2026 年 11 月结束支持，.NET 10 到 2028 年 11 月。不能因为 8 的数字小就把即将停止支持的版本定为长期发布目标。
 
-## 修订后的选择
+## 原生优先方案
+
+若将**最低常驻占用**作为首要目标，优先用 **C++17 + Win32/Shell API** 做产品原型：一个进程、普通窗口与托盘，不引入 .NET、WinUI、浏览器内核或后台服务。[微软的 Win32 说明](https://learn.microsoft.com/en-us/windows/win32/desktop-programming)确认它不依赖托管运行时；[C++ 桌面选型说明](https://learn.microsoft.com/en-us/cpp/windows/overview-of-windows-programming-in-cpp?view=msvc-170)也把精确控制内存和省电列为选择原生 C++ 的理由。这是更合适的**轻量化方向**，仍不能代替实际测量。
+
+- 界面先用 Win32 窗口和系统绘制能力，只在需要半透明效果时使用[分层窗口](https://learn.microsoft.com/en-us/windows/desktop/api/winuser/nf-winuser-updatelayeredwindow)；不做持续动画或固定频率刷新。
+- 托盘使用 Windows 的 [`Shell_NotifyIcon`](https://learn.microsoft.com/en-us/windows/win32/shell/notification-area)。桌面项目读取和操作优先使用公开的 Shell 接口。
+- 先只实现一个分组框、一个测试图标、打开与恢复。原生路线仍需验证能否安全处理**原图标的显示与恢复**。微软公开的 [`IFolderView`](https://learn.microsoft.com/en-us/windows/win32/api/shobjidl_core/nn-shobjidl_core-ifolderview) 与 [`IFolderView2`](https://learn.microsoft.com/en-us/windows/win32/api/shobjidl_core/nn-shobjidl_core-ifolderview2)列出读取、选择、定位等操作，但从这些接口列表**不能直接得出可靠隐藏单个原图标的办法**；这是原型要解决的风险，而不是语言选择能自动解决的问题。
+- 本机已有 Visual Studio C++ 编译工具，但 Windows SDK 头文件尚未安装；原生原型开始前需补齐 SDK。保留 C# WinForms 作为开发成本较低的备选路线。
+
+## 备选路线及版本取舍
 
 | 路线 | 资源与发布 | 开发成本 | 当前判断 |
 | --- | --- | --- | --- |
-| C# + WinForms + .NET 8 | 需要 .NET 8 桌面运行时或自带运行时；占用须实测；支持即将结束 | 本机已有 .NET 8 SDK，可直接验证 | **只用于第一轮可丢弃原型**，避免现在安装新 SDK；不作为正式发布版本 |
+| C# + WinForms + .NET 8 | 需要 .NET 8 桌面运行时或自带运行时；占用须实测；支持即将结束 | 本机已有 .NET 8 SDK，可直接验证 | 若原生开发明显拖慢进度，可用于**一次性对照原型**；不作为正式发布版本 |
 | C# + WinForms + .NET 10 | 同样需要对应桌面运行时或自带运行时；没有证据表明它一定比 8 更占资源 | 开发与调试路径直接，但本机尚缺 .NET 10 SDK | 若 C# 原型满足资源目标，正式开发时再选这个长期支持版 |
 | C# + WinForms + .NET Framework 4.8.1 | [Windows 11 自带](https://learn.microsoft.com/en-us/dotnet/framework/install/)，本机也已安装，可减少额外运行时部署；内存仍须实测 | 旧框架，未来开发受限；微软建议新项目用现代 .NET | 不因其版本号小就默认选择，只有部署或实测显示明显收益时再考虑 |
-| C++ + 原生 Win32/Shell | 不需要托管运行时，能更精细控制内存和耗电；[微软建议](https://learn.microsoft.com/en-us/cpp/windows/overview-of-windows-programming-in-cpp?view=msvc-170)在这类需求下考虑 C++ | 窗口消息、资源所有权和系统接口需要更多实现与测试；本机有 C++ 编译工具，但缺 Windows SDK 头文件 | 若托管方案资源不达标，优先比较此路线；不能未经测量就声称最终程序一定更小 |
 
-目前**不锁定发布技术栈**。验证原型可先用 .NET 8 WinForms；桌面集成安全性和代表性资源测量通过后，再选择 .NET 10 WinForms 或原生 C++/Win32。WinForms 提供控件、事件与自绘能力，适合快速验证交互；这只是开发效率判断。[微软概览](https://learn.microsoft.com/en-us/dotnet/desktop/winforms/overview/)。
+目前以 C++/Win32 为首选，但仍以桌面集成安全性和代表性资源测量决定最终方案。WinForms 提供控件、事件与自绘能力，若原生实现成本超出收益，可退回 C# 路线。[微软概览](https://learn.microsoft.com/en-us/dotnet/desktop/winforms/overview/)。
 
 ## 与技术栈无关的实现原则
 
@@ -37,8 +45,8 @@
 
 ## 开发顺序与停靠点
 
-1. **小原型**：在隔离的 Windows 11 测试环境中，用现有 .NET 8 SDK 只实现一个分组和一个测试图标。验证显示、打开、右键、退出恢复、强制结束、资源管理器重启。不能安全恢复就先调整设计，不继续做完整界面。
-2. **资源测量与定栈**：同一机器、同一场景下记录冷启动时间、空闲私有内存与工作集、空闲 CPU、10/100 个图标时的响应，以及发布包大小。先排除轮询和资源泄漏；若托管方案仍过重，再安装 Windows SDK 做同功能的 C++ 原型比较。记录两条路线的实现与维护成本，然后选正式版本。
+1. **小原型**：补齐 Windows SDK 后，在隔离的 Windows 11 测试环境中用原生 C++ 只实现一个分组和一个测试图标。验证显示、打开、右键、退出恢复、强制结束、资源管理器重启。不能安全恢复就先调整设计，不继续做完整界面。
+2. **资源测量与定栈**：同一机器、同一场景下记录冷启动时间、空闲私有内存与工作集、空闲 CPU、10/100 个图标时的响应，以及发布包大小。先排除轮询和资源泄漏；若原生实现成本明显高于收益，再用现有 .NET 8 SDK 做同功能对照原型，记录两条路线的开发与维护成本。
 3. **最小可用版本**：分组增删改、手动加入/移出项目、本地布局保存、托盘、恢复入口、自启动开关。每完成一条需求，按 `mvp.md` 的验收结果手工验证。
 4. **发布准备**：确定许可证、发布方式、卸载恢复流程和干净机器验证，再公开可下载版本。
 
