@@ -79,4 +79,5 @@ P0/P1 是技术风险关口，不能用“界面看起来像分组”替代真�
 - 图标坐标使用桌面列表视图坐标。本机列表视图原点为 `(-2194,-2)`，与虚拟屏幕原点相同；原型以虚拟屏幕原点换算格子命中区域。不同屏幕组合和缩放尚未验证。
 - 布局 JSON 的保存、读取和备份恢复已后台验证。分组前保存桌面项目位置快照，异常中断后保留原位置记录；但强制结束、Explorer 重启和位置冲突的完整流程尚未验收。
 - 无分组托盘状态一次测得私有内存 24.1 MiB、工作集 52.8 MiB，后续 5 秒 CPU 时间增加 0.016 秒。本机两块显示屏，仅供基线比较，不能代表有分组后的资源占用。
-- 当前桌面右键通过当前用户的旧式 `DesktopBackground\\Shell` 注册，Windows 11 主菜单可见性未验证；按[微软文档](https://learn.microsoft.com/en-us/windows/apps/desktop/modernize/integrate-packaged-app-with-file-explorer)，主菜单接入需要原生 `IExplorerCommand` 和应用包身份，仍未实现。M1–M7 **均未宣告通过完整验收**。
+- 当前桌面右键通过当前用户的旧式 `DesktopBackground\\Shell` 注册，Windows 11 主菜单可见性未验证；按[微软文档](https://learn.microsoft.com/en-us/windows/apps/desktop/modernize/integrate-packaged-app-with-file-explorer)，主菜单接入需要原生 `IExplorerCommand` 和应用包身份。
+- 原生 `IExplorerCommand` DLL 与稀疏包清单现已能离线构建，尚未签名、注册或在 Explorer 中验收。具体限制见[菜单接入记录](menu-integration.md)。M1–M7 **均未宣告通过完整验收**。

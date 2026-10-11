@@ -17,7 +17,7 @@
 
 - 主程序：一个 WinForms 进程，负责格子窗口、托盘、设置、布局和恢复；存在分组时以 800 毫秒定时回读图标位置，以识别用户在 Explorer 中的拖动。这个轮询成本需在大量图标场景实测。
 - 系统接入：在 C# 中调用公开的 Win32/Shell COM 接口；旧 C++ 探测工具已按要求移除。
-- Windows 11 主右键菜单：仍需验证原生 `IExplorerCommand` 扩展。若确实需要单独的 C++ DLL，只把菜单命令转给主程序，不把业务逻辑移进去，也不让 Explorer 加载托管运行时。[微软菜单扩展说明](https://learn.microsoft.com/en-us/windows/apps/desktop/modernize/integrate-packaged-app-with-file-explorer)。
+- Windows 11 主右键菜单：原生 `IExplorerCommand` 扩展和稀疏包清单已能离线构建，仍需安装和桌面实测。单独的 C++ DLL 只把菜单命令转给主程序，不承载分组逻辑，也不让 Explorer 加载托管运行时。[微软菜单扩展说明](https://learn.microsoft.com/en-us/windows/apps/desktop/modernize/integrate-packaged-app-with-file-explorer)。
 - 第一版不加入 Electron、WebView、Qt、额外后台服务或第三方 UI 库。构建时可用参考程序集包；它不是用户运行时依赖。
 
 ## 界面与后续风格
