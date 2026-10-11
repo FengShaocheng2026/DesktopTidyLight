@@ -18,7 +18,7 @@
 
 1. 在隔离的 Windows 11 环境中读取一个测试桌面图标，放入一个分组框，并保持双击、右键、移出和退出恢复可用。
 2. 验证强制结束程序、Explorer 重启、缩放变化后，原图标不会丢失、重复或跑到不可见位置。分组操作不移动或删除真实文件。
-3. 微软公开的 [IFolderView](https://learn.microsoft.com/en-us/windows/win32/api/shobjidl_core/nn-shobjidl_core-ifolderview) / [IFolderView2](https://learn.microsoft.com/en-us/windows/win32/api/shobjidl_core/nn-shobjidl_core-ifolderview2) 有读取、选择和定位能力，但尚不能据此确认“可靠隐藏单个原图标并恢复”的做法。若无法通过这一关，应调整交互方案，再继续完整界面。
+3. 微软公开的 [IFolderView](https://learn.microsoft.com/en-us/windows/win32/api/shobjidl_core/nn-shobjidl_core-ifolderview) / [IFolderView2](https://learn.microsoft.com/en-us/windows/win32/api/shobjidl_core/nn-shobjidl_core-ifolderview2) 有读取、选择和定位能力。原型优先尝试将原生图标定位到分组区域，并验证分组框能否与原生操作共存、退出后能否恢复原位置。若无法通过这一关，应调整交互方案，再继续完整界面。
 4. 记录冷启动、空闲私有内存和工作集、空闲 CPU、10/100 图标响应及发布包大小。优先优化多余窗口、轮询和图标缓存，而不是凭语言名称判断性能。
 
 ## 第一版实现顺序
