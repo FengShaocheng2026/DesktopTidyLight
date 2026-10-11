@@ -64,4 +64,4 @@ P0/P1 是技术风险关口，不能用“界面看起来像分组”替代真�
 
 已在本机 Windows 11 x64 安装 Windows SDK 10.0.26100，并用 MSVC 编译[只读探测工具](../tools/DesktopProbe/README.md)。默认模式运行成功：枚举 42 个桌面项目，位置读取错误 0；未输出项目名称，也未修改桌面。当前桌面报告“自动排列图标”已开启。这个结果只验证了读取路径，不证明图标能够定位到组内，也不代表 P1 通过。下一步须在隔离测试账户验证自动排列开启和关闭两种状态，并确定是否能在不替用户悄悄更改设置的前提下满足分组需求。
 
-补充验证：探测工具新增只读的 `--selected` 模式，本机在未选中图标时返回 0；这只验证了空选择的处理，尚未验证多选拖放。当前机器未找到 Windows Sandbox 可执行入口；P1 的图标移动和恢复实验仍需隔离测试环境，不能据此改动日常桌面。
+补充验证：探测工具新增只读的 `--selected` 模式，本机在未选中图标时返回 0；这只验证了空选择的处理，尚未验证多选拖放。当前机器是 Windows 11 家庭中文版，没有 Windows Sandbox 可执行入口；[微软说明](https://learn.microsoft.com/en-us/windows/security/threat-protection/windows-sandbox/windows-sandbox-overview)家庭版不支持 Windows Sandbox。P1 的图标移动和恢复实验需要独立测试环境，不能据此改动日常桌面。
