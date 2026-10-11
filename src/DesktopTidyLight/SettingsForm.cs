@@ -36,7 +36,7 @@ namespace DesktopTidyLight
             };
             var arrange = new Label
             {
-                Text = autoArrange ? "桌面“自动排列图标”已开启。分组需要先关闭它。" : "桌面“自动排列图标”已关闭，可以手动分组。",
+                Text = autoArrange ? "桌面图标当前由 Windows 自动排列。新建分组时会暂时关闭。" : "桌面图标当前可自由排列。",
                 AutoSize = true,
                 Location = new Point(20, 68)
             };

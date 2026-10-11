@@ -44,8 +44,9 @@ namespace DesktopTidyLight
                         if (!previous.ContainsKey(item.Id) || (layout.Groups.Count == 0 && layout.Members.Count == 0))
                             previous[item.Id] = item.Position;
                     if (layout.Snapshots.Count == 0 || (layout.Groups.Count == 0 && layout.Members.Count == 0)) SavePositions();
-                    if (!desktop.AutoArrange)
-                        foreach (var group in layout.Groups) ShowFrame(group);
+                    if (layout.Groups.Count > 0) BeginManualLayout(desktop);
+                    else RestoreFolderFlags(desktop);
+                    foreach (var group in layout.Groups) ShowFrame(group);
                 }
             }
             catch (Exception error) { Alert("无法读取桌面，分组暂未显示：" + error.Message); }
@@ -133,10 +134,28 @@ namespace DesktopTidyLight
             pendingSave = false;
         }
 
+        private void BeginManualLayout(DesktopShell desktop)
+        {
+            if (!layout.OriginalFolderFlags.HasValue)
+            {
+                layout.OriginalFolderFlags = desktop.PositioningFlags;
+                SavePositions(); // Save the user's setting before changing Explorer.
+            }
+            if (desktop.PositioningFlags != 0) desktop.SetPositioningFlags(0);
+        }
+
+        private void RestoreFolderFlags(DesktopShell desktop)
+        {
+            if (!layout.OriginalFolderFlags.HasValue) return;
+            desktop.SetPositioningFlags(layout.OriginalFolderFlags.Value);
+            layout.OriginalFolderFlags = null;
+            SavePositions();
+        }
+
         private static Rectangle Interior(GroupFrame frame)
         {
-            Point screen = frame.PointToScreen(Point.Empty);
-            return new Rectangle(screen.X + 6, screen.Y + 34, frame.Width - 12, frame.Height - 40);
+            Rectangle bounds = frame.ScreenBounds;
+            return new Rectangle(bounds.X + 6, bounds.Y + 34, bounds.Width - 12, bounds.Height - 40);
         }
 
         private void CreateGroup()
@@ -145,8 +164,8 @@ namespace DesktopTidyLight
             {
                 using (var desktop = new DesktopShell())
                 {
-                    if (desktop.AutoArrange) { Alert("请先在 Windows 桌面右键菜单中关闭“自动排列图标”，再新建分组。"); return; }
                     foreach (var item in desktop.Items()) previous[item.Id] = item.Position;
+                    BeginManualLayout(desktop);
                 }
                 Point cursor = Cursor.Position;
                 Rectangle area = Screen.FromPoint(cursor).WorkingArea;
@@ -187,8 +206,9 @@ namespace DesktopTidyLight
                 using (var desktop = new DesktopShell())
                 {
                     var items = desktop.Items().ToDictionary(value => value.Id, StringComparer.OrdinalIgnoreCase);
-                    int dx = frame.Left - oldBounds.Left;
-                    int dy = frame.Top - oldBounds.Top;
+                    Rectangle newBounds = frame.ScreenBounds;
+                    int dx = newBounds.X - oldBounds.Left;
+                    int dy = newBounds.Y - oldBounds.Top;
                     var targets = new Dictionary<string, Point>(StringComparer.OrdinalIgnoreCase);
                     foreach (var member in members)
                     {
@@ -215,7 +235,7 @@ namespace DesktopTidyLight
             }
             catch (Exception error)
             {
-                frame.Bounds = oldBounds;
+                frame.SetScreenBounds(oldBounds);
                 try
                 {
                     if (originals.Count > 0)
@@ -244,6 +264,8 @@ namespace DesktopTidyLight
                     foreach (var item in desktop.Items()) previous[item.Id] = item.Position;
                 layout.Members.RemoveAll(value => value.GroupId == frame.Data.Id);
                 layout.Groups.Remove(frame.Data);
+                if (layout.Groups.Count == 0)
+                    using (var desktop = new DesktopShell()) RestoreFolderFlags(desktop);
                 SavePositions();
                 frames.Remove(frame);
                 frame.Close();
@@ -264,7 +286,10 @@ namespace DesktopTidyLight
             {
                 RestoreMembers(layout.Members);
                 using (var desktop = new DesktopShell())
+                {
+                    RestoreFolderFlags(desktop);
                     foreach (var item in desktop.Items()) previous[item.Id] = item.Position;
+                }
                 layout.Members.Clear();
                 SavePositions();
                 closing = true;
@@ -300,7 +325,7 @@ namespace DesktopTidyLight
 
         private void ShowDesktopStatus()
         {
-            try { using (var desktop = new DesktopShell()) Alert(desktop.AutoArrange ? "自动排列图标已开启。请在桌面右键菜单中关闭它。" : "自动排列图标已关闭，可以创建分组。"); }
+            try { using (var desktop = new DesktopShell()) Alert(desktop.AutoArrange ? "自动排列图标已开启。新建分组时程序会暂时关闭，退出恢复后还原。" : "自动排列图标当前已关闭。若是本程序暂时关闭的，退出恢复后会还原原设置。"); }
             catch (Exception error) { Alert(error.Message); }
         }
 

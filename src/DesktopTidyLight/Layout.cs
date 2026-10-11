@@ -41,6 +41,7 @@ namespace DesktopTidyLight
         [DataMember] internal List<GroupData> Groups = new List<GroupData>();
         [DataMember] internal List<MemberData> Members = new List<MemberData>();
         [DataMember] internal List<PositionData> Snapshots = new List<PositionData>();
+        [DataMember] internal int? OriginalFolderFlags;
     }
 
     internal static class LayoutStore

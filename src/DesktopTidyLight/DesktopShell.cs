@@ -17,6 +17,7 @@ namespace DesktopTidyLight
         private static readonly Guid ServiceProviderId = new Guid("6D5140C1-7436-11CE-8034-00AA006009FA");
         private static readonly Guid BrowserId = new Guid("000214E2-0000-0000-C000-000000000046");
         private static readonly Guid FolderViewId = new Guid("CDE725B0-CCC9-4519-917E-325D72FAB4CE");
+        private static readonly Guid FolderView2Id = new Guid("1AF3A467-214F-4298-908E-06B03E0B39F9");
         private static readonly Guid ShellFolderId = new Guid("000214E6-0000-0000-C000-000000000046");
         private const int DesktopClass = 8;
         private const int NeedDispatch = 1;
@@ -43,6 +44,10 @@ namespace DesktopTidyLight
         private delegate int PositionCall(IntPtr self, IntPtr pidl, out NativePoint point);
         [UnmanagedFunctionPointer(CallingConvention.StdCall)]
         private delegate int AutoArrangeCall(IntPtr self);
+        [UnmanagedFunctionPointer(CallingConvention.StdCall)]
+        private delegate int GetFlagsCall(IntPtr self, out uint flags);
+        [UnmanagedFunctionPointer(CallingConvention.StdCall)]
+        private delegate int SetFlagsCall(IntPtr self, uint mask, uint flags);
         [UnmanagedFunctionPointer(CallingConvention.StdCall)]
         private delegate int DisplayNameCall(IntPtr self, IntPtr pidl, uint flags, IntPtr strret);
         [UnmanagedFunctionPointer(CallingConvention.StdCall)]
@@ -110,6 +115,39 @@ namespace DesktopTidyLight
                 Check(result, "GetAutoArrange");
                 return result == 0;
             }
+        }
+
+        internal int FolderFlags
+        {
+            get
+            {
+                IntPtr extended = IntPtr.Zero;
+                Guid id = FolderView2Id;
+                try
+                {
+                    Check(Marshal.QueryInterface(view, ref id, out extended), "IFolderView2");
+                    uint flags;
+                    Check(Method<GetFlagsCall>(extended, 25)(extended, out flags), "GetCurrentFolderFlags");
+                    return (int)flags;
+                }
+                finally { if (extended != IntPtr.Zero) Marshal.Release(extended); }
+            }
+        }
+
+        internal int PositioningFlags { get { return (FolderFlags & 0x4) | (AutoArrange ? 0x1 : 0); } }
+
+        internal void SetPositioningFlags(int flags)
+        {
+            IntPtr extended = IntPtr.Zero;
+            Guid id = FolderView2Id;
+            try
+            {
+                Check(Marshal.QueryInterface(view, ref id, out extended), "IFolderView2");
+                Check(Method<SetFlagsCall>(extended, 24)(extended, 0x5, (uint)flags & 0x5), "SetCurrentFolderFlags");
+                if (PositioningFlags != (flags & 0x5))
+                    throw new InvalidOperationException("Explorer 没有应用图标排列设置。");
+            }
+            finally { if (extended != IntPtr.Zero) Marshal.Release(extended); }
         }
 
 

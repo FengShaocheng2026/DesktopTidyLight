@@ -20,7 +20,7 @@ namespace DesktopTidyLight
                 try
                 {
                     using (var desktop = new DesktopShell())
-                        File.WriteAllText(args[1], "items=" + desktop.Items().Count + ", autoArrange=" + desktop.AutoArrange);
+                        File.WriteAllText(args[1], "items=" + desktop.Items().Count + ", autoArrange=" + desktop.AutoArrange + ", positioningFlags=" + desktop.PositioningFlags);
                 }
                 catch (Exception error) { File.WriteAllText(args[1], error.ToString()); }
                 return;
@@ -57,10 +57,15 @@ namespace DesktopTidyLight
                     Layout layout = LayoutStore.Load();
                     if (args.Length == 1 && args[0] == "--restore")
                     {
-                        TidyContext.RestoreMembers(layout.Members);
                         using (var desktop = new DesktopShell())
+                        {
+                            if (layout.Members.Count > 0 && desktop.AutoArrange) desktop.SetPositioningFlags(0);
+                            TidyContext.RestoreMembers(layout.Members);
+                            if (layout.OriginalFolderFlags.HasValue) desktop.SetPositioningFlags(layout.OriginalFolderFlags.Value);
                             layout.Snapshots = desktop.Items().ConvertAll(item => new PositionData { Id = item.Id, X = item.Position.X, Y = item.Position.Y });
+                        }
                         layout.Members.Clear();
+                        layout.OriginalFolderFlags = null;
                         LayoutStore.Save(layout);
                         return;
                     }
