@@ -217,6 +217,23 @@ namespace DesktopTidyLight
                 SetWindowPos(backgroundLayer.Handle, Handle, bounds.X, bounds.Y, bounds.Width, bounds.Height, flags);
         }
 
+        internal void RestoreDesktopOrder()
+        {
+            if (desktopOwner == IntPtr.Zero || !IsHandleCreated) return;
+            if (!SetWindowPos(Handle, desktopOwner, 0, 0, 0, 0, 0x13 | 0x200))
+                throw new System.ComponentModel.Win32Exception("无法恢复桌面分组层级。");
+            if (backgroundLayer != null)
+                SetWindowPos(backgroundLayer.Handle, Handle, 0, 0, 0, 0, 0x13 | 0x200);
+        }
+
+        internal bool IsAbove(IntPtr window)
+        {
+            if (window == IntPtr.Zero || !IsHandleCreated) return false;
+            for (var current = GetWindow(window, 3); current != IntPtr.Zero; current = GetWindow(current, 3))
+                if (current == Handle || (backgroundLayer != null && current == backgroundLayer.Handle)) return true;
+            return false;
+        }
+
         private void UpdateBackground()
         {
             if (desktopOwner == IntPtr.Zero) return;

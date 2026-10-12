@@ -133,6 +133,9 @@ internal static class UnifiedChecks
             DisplayLayout.Resolve(g, new[] { smaller, b }); Assert(smaller.Work.Contains(GridLayout.Bounds(g)) && g.Width == 420, "DPI/resize bounds");
             DisplayLayout.Resolve(g, new[] { b }); Assert(b.Work.Contains(GridLayout.Bounds(g)) && g.MonitorId == a.Id, "fallback lost affinity");
             DisplayLayout.Resolve(g, new[] { a, b }); Assert(GridLayout.Bounds(g) == original, "reconnect lost layout");
+            var sameDpi = new DisplayInfo { Id = a.Id, Work = new Rectangle(0, 0, 1920, 1080), Dpi = a.Dpi };
+            DisplayLayout.Resolve(g, new[] { sameDpi, b });
+            Assert(g.Width == 420 && g.Height == 360, "same-DPI resolution change did not scale group");
         });
         check("monitor fallback preserves overlap and preferred records", () =>
         {

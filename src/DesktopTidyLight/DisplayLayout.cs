@@ -70,6 +70,13 @@ namespace DesktopTidyLight
             var preferred = monitors.FirstOrDefault(m => m.Id == group.MonitorId);
             var display = preferred ?? Nearest(GridLayout.Bounds(group), monitors);
             double scale = (double)display.Dpi / Math.Max(96, group.MonitorDpi);
+            if (preferred != null && group.MonitorWidth > 0 && group.MonitorHeight > 0)
+            {
+                double widthRatio = (double)display.Work.Width / group.MonitorWidth;
+                double heightRatio = (double)display.Work.Height / group.MonitorHeight;
+                if (Math.Abs(widthRatio - 1) > 0.2 || Math.Abs(heightRatio - 1) > 0.2)
+                    scale = Math.Min(widthRatio, heightRatio);
+            }
             int w = Math.Min(display.Work.Width, Math.Max(240, (int)Math.Round(group.SavedWidth * scale)));
             int h = Math.Min(display.Work.Height, Math.Max(180, (int)Math.Round(group.SavedHeight * scale)));
             double x = (double)(group.SavedX - group.MonitorX) / Math.Max(1, group.MonitorWidth - group.SavedWidth);

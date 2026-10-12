@@ -11,6 +11,8 @@ namespace DesktopTidyLight
 {
     internal sealed class TidyContext : ApplicationContext
     {
+        [DllImport("user32.dll")] private static extern IntPtr GetForegroundWindow();
+        [DllImport("user32.dll")] private static extern uint GetWindowThreadProcessId(IntPtr window, out uint processId);
         private readonly LayoutController controller;
         private readonly NotifyIcon tray = new NotifyIcon();
         private readonly Icon appIcon = Theme.CreateIcon();
@@ -18,6 +20,7 @@ namespace DesktopTidyLight
         private readonly List<GroupFrame> frames = new List<GroupFrame>();
         private readonly EventWaitHandle createEvent, restoreEvent, unregisterEvent, settingsEvent;
         private readonly Control dispatcher = new Control();
+        private readonly uint ownProcessId = (uint)System.Diagnostics.Process.GetCurrentProcess().Id;
         private bool closing, busy, paused;
         private volatile bool environmentChanged;
         private int syncFailures;
@@ -91,6 +94,12 @@ namespace DesktopTidyLight
             if (createEvent.WaitOne(0)) { CreateGroup(); return; }
             if (settingsEvent.WaitOne(0)) { ShowSettings(); return; }
             if (paused || controller.State.Groups.Count == 0 || frames.Any(f => f.IsDragging)) return;
+            var foreground = GetForegroundWindow();
+            uint foregroundProcess;
+            if (foreground != IntPtr.Zero && GetWindowThreadProcessId(foreground, out foregroundProcess) != 0 &&
+                foregroundProcess != ownProcessId && foregroundProcess != explorerProcessId)
+                foreach (var frame in frames)
+                    if (!frame.IsDisposed && frame.IsAbove(foreground)) frame.RestoreDesktopOrder();
             if (Control.MouseButtons != MouseButtons.None) { mouseWasDown |= DesktopDrop.IsDesktop(Cursor.Position); return; }
             long now = System.Diagnostics.Stopwatch.GetTimestamp();
             if (now < retryAfter) return;
@@ -198,6 +207,7 @@ namespace DesktopTidyLight
         private void RefreshFrames()
         {
             if (paused) return;
+            var displays = DisplayLayout.Capture();
             foreach (var frame in frames.ToArray())
                 if (frame.IsDisposed || !controller.State.Groups.Any(g => g.Id == frame.Data.Id)) { frame.Dispose(); frames.Remove(frame); }
             foreach (var group in controller.State.Groups)
@@ -224,6 +234,16 @@ namespace DesktopTidyLight
                     catch { frame.Dispose(); frames.Remove(frame); throw; }
                 }
                 frame.LoadData(group);
+                var display = displays.FirstOrDefault(d => d.Id == group.MonitorId);
+                float iconScale = 1;
+                if (display != null && group.MonitorWidth > 0 && group.MonitorHeight > 0)
+                {
+                    double ratio = Math.Min((double)display.Work.Width / group.MonitorWidth, (double)display.Work.Height / group.MonitorHeight);
+                    if (Math.Abs((double)display.Work.Width / group.MonitorWidth - 1) > 0.2 ||
+                        Math.Abs((double)display.Work.Height / group.MonitorHeight - 1) > 0.2)
+                        iconScale = (float)(ratio * Math.Max(96, group.MonitorDpi) / display.Dpi);
+                }
+                frame.Icons.SetResolutionScale(iconScale);
                 frame.ApplyPreferences(controller.State.AutoHideTitle, controller.State.BackgroundTransparency);
                 frame.Icons.SetMembers(controller.State.Members.Where(m => m.GroupId == group.Id));
                 frame.MemberCount = controller.State.Members.Count(m => m.GroupId == group.Id);

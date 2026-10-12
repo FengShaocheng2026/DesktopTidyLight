@@ -22,6 +22,7 @@ namespace DesktopTidyLight
         internal bool IsLoadingVisuals { get { return loading.HasWork; } }
         private bool initialRefresh;
         private int cachedDpi;
+        private float resolutionScale = 1;
         private int cachedCellWidth;
         private readonly Timer refreshTimer = new Timer { Interval = 2000 };
         private readonly HashSet<string> selection = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -41,7 +42,13 @@ namespace DesktopTidyLight
         internal event Action<string[]> RemoveRequested;
         internal event Action<string[]> ReorderRequested;
         internal event Action BackgroundMenuRequested;
-        private float ScaleFactor { get { return DeviceDpi / 96f; } }
+        private float ScaleFactor { get { return DeviceDpi / 96f * resolutionScale; } }
+        internal void SetResolutionScale(float scale)
+        {
+            if (Math.Abs(resolutionScale - scale) < 0.001f) return;
+            resolutionScale = scale;
+            RefreshVisuals(); Arrange();
+        }
         private int Pad { get { return (int)(16 * ScaleFactor); } }
         private int CellW { get { return Math.Max(1, Math.Min((int)(100 * ScaleFactor), ClientSize.Width - 2 * Pad - (int)(10 * ScaleFactor))); } }
         private int CellH { get { return (int)(104 * ScaleFactor); } }
