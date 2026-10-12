@@ -45,4 +45,6 @@ powershell -NoProfile -File packaging/Package.ps1
 
 仅整理已出现在 Windows 桌面视图中的项目。与 Explorer 桌面窗口的集成依赖 Windows 行为；物理显示器热插拔、远程桌面、系统升级和长时间运行仍需要更多实机验证。部分 Shell 图标可能显示为通用图标，可在分组菜单中手动刷新。
 
-仓库目前没有开源许可证；公开访问不等于授权复用代码。
+## 许可证
+
+本项目采用 [MIT 许可证](LICENSE)。
