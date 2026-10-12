@@ -11,8 +11,10 @@ foreach ($name in @('DesktopTidyLight.exe', 'DesktopTidyLight.exe.config')) {
     Copy-Item -LiteralPath (Join-Path $repo "build/package-current/$name") -Destination $output -Force
 }
 [IO.File]::WriteAllText((Join-Path $output '使用说明.txt'), [IO.File]::ReadAllText((Join-Path $PSScriptRoot '使用说明.txt')).Replace('{VERSION}', $Version), (New-Object Text.UTF8Encoding($true)))
+[IO.File]::WriteAllText((Join-Path $output 'Instructions.en.txt'), [IO.File]::ReadAllText((Join-Path $PSScriptRoot 'Instructions.en.txt')).Replace('{VERSION}', $Version), (New-Object Text.UTF8Encoding($false)))
+Copy-Item -LiteralPath (Join-Path $repo 'LICENSE') -Destination $output -Force
 $archive = "$output.zip"
-$files = @('DesktopTidyLight.exe', 'DesktopTidyLight.exe.config', '使用说明.txt') | ForEach-Object { Join-Path $output $_ }
+$files = @('DesktopTidyLight.exe', 'DesktopTidyLight.exe.config', '使用说明.txt', 'Instructions.en.txt', 'LICENSE') | ForEach-Object { Join-Path $output $_ }
 Compress-Archive -LiteralPath $files -DestinationPath $archive -Force
 Get-FileHash -LiteralPath $archive -Algorithm SHA256 | ForEach-Object { "$($_.Hash)  $([IO.Path]::GetFileName($archive))" } | Set-Content -LiteralPath "$archive.sha256" -Encoding ascii
 Write-Output $archive

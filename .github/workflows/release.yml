@@ -1,0 +1,35 @@
+name: Release portable package
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Check version and run tests
+        shell: pwsh
+        run: |
+          $version = ([xml](Get-Content src/DesktopTidyLight/DesktopTidyLight.csproj -Raw)).Project.PropertyGroup.Version
+          if ($env:GITHUB_REF_NAME -ne "v$version") { throw "Tag does not match project version $version" }
+          & .\tests\run-checks.ps1
+      - name: Build package
+        shell: pwsh
+        run: .\packaging\Package.ps1
+      - name: Publish release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $assets = @(Get-ChildItem dist -File -Filter "DesktopTidyLight-$($env:GITHUB_REF_NAME.Substring(1))-win-x64.zip*").FullName
+          if ($assets.Count -ne 2) { throw 'Expected ZIP and SHA256 assets' }
+          gh release create $env:GITHUB_REF_NAME $assets --verify-tag --generate-notes
