@@ -275,11 +275,13 @@ internal static class UnifiedChecks
             try
             {
                 string icon = Path.Combine(directory, "custom,icon.ico"), link = Path.Combine(directory, "开发工具.lnk");
+                string initialLink = Path.Combine(directory, "shortcut.lnk");
                 using (var file = File.Create(icon)) SystemIcons.Error.Save(file);
                 shell = Activator.CreateInstance(Type.GetTypeFromProgID("WScript.Shell"));
-                shortcut = ((dynamic)shell).CreateShortcut(link);
+                shortcut = ((dynamic)shell).CreateShortcut(initialLink);
                 ((dynamic)shortcut).TargetPath = Application.ExecutablePath;
                 ((dynamic)shortcut).IconLocation = icon + ",0"; ((dynamic)shortcut).Save();
+                File.Move(initialLink, link);
                 byte[] before = File.ReadAllBytes(link);
                 using (var visual = ShellVisual.Load(link, 48))
                 {
