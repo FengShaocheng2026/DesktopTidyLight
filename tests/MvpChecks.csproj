@@ -1,0 +1,36 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net48</TargetFramework>
+    <PlatformTarget>x64</PlatformTarget>
+    <ApplicationManifest>../src/DesktopTidyLight/app.manifest</ApplicationManifest>
+    <AppConfig>../src/DesktopTidyLight/App.config</AppConfig>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+  </PropertyGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="../src/DesktopTidyLight/Assets/app.ico" LogicalName="DesktopTidyLight.AppIcon" />
+    <Reference Include="Microsoft.CSharp" />
+    <Reference Include="System.Drawing" />
+    <Reference Include="System.Windows.Forms" />
+    <Reference Include="System.Runtime.Serialization" />
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies.net48" Version="1.0.3" PrivateAssets="all" />
+    <Compile Include="MvpChecks.cs" />
+    <Compile Include="PerformanceChecks.cs" />
+    <Compile Include="../src/DesktopTidyLight/DesktopScan.cs" />
+    <Compile Include="UnifiedChecks.cs" />
+    <Compile Include="UiRenderCheck.cs" />
+    <Compile Include="../src/DesktopTidyLight/Theme.cs" />
+    <Compile Include="../src/DesktopTidyLight/SettingsForm.cs" />
+    <Compile Include="../src/DesktopTidyLight/Dialogs.cs" />
+    <Compile Include="ShellSmokeCheck.cs" />
+    <Compile Include="../src/DesktopTidyLight/Layout.cs" />
+    <Compile Include="../src/DesktopTidyLight/GridLayout.cs" />
+    <Compile Include="../src/DesktopTidyLight/LayoutController.cs" />
+    <Compile Include="../src/DesktopTidyLight/UnifiedLayout.cs" />
+    <Compile Include="../src/DesktopTidyLight/DisplayLayout.cs" />
+    <Compile Include="../src/DesktopTidyLight/IconCanvas.cs" />
+    <Compile Include="../src/DesktopTidyLight/DesktopDrop.cs" />
+    <Compile Include="../src/DesktopTidyLight/GroupFrame.cs" />
+    <Compile Include="../src/DesktopTidyLight/DesktopShell.cs" />
+  </ItemGroup>
+</Project>

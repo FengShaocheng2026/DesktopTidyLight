@@ -3,3 +3,6 @@ build/
 **/obj/
 *.obj
 *.pdb
+
+dist/
+src/DesktopTidyLight/Assets/app-*.png
