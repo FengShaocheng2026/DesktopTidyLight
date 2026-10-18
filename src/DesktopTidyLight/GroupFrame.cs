@@ -39,8 +39,8 @@ namespace DesktopTidyLight
             if (message.Msg != 0x46 || desktopOwner == IntPtr.Zero || shuttingDown) return;
             var position = (WindowPosition)Marshal.PtrToStructure(message.LParam, typeof(WindowPosition));
             if ((position.Flags & 0x4) != 0) return; // SWP_NOZORDER
-            if (position.After != (background ? Handle : desktopOwner))
-                position.Flags |= 0x4; // Ignore automatic raise requests; explicit desktop positioning still works.
+            // Re-anchor instead of freezing an already incorrect position in the window stack.
+            position.After = background ? Handle : desktopOwner;
             position.Flags |= 0x200; // SWP_NOOWNERZORDER
             Marshal.StructureToPtr(position, message.LParam, false);
         }
@@ -209,7 +209,7 @@ namespace DesktopTidyLight
 
         internal void SetScreenBounds(Rectangle bounds)
         {
-            uint flags = 0x10 | 0x40 | 0x200;
+            uint flags = 0x10 | 0x200;
             if (Size != bounds.Size) flags |= 0x100; // SWP_NOCOPYBITS: never stretch/copy an old border into a resized frame.
             if (desktopOwner == IntPtr.Zero || !SetWindowPos(Handle, desktopOwner, bounds.X, bounds.Y, bounds.Width, bounds.Height, flags))
                 throw new System.ComponentModel.Win32Exception("无法定位桌面分组框。");
@@ -303,6 +303,9 @@ namespace DesktopTidyLight
             }, IntPtr.Zero);
             return host == IntPtr.Zero ? IntPtr.Zero : GetAncestor(host, 2);
         }
+
+        internal bool IsDesktopWindow(IntPtr window)
+        { return window != IntPtr.Zero && window == desktopOwner; }
 
         protected override void OnPaint(PaintEventArgs args)
         {

@@ -40,7 +40,7 @@ powershell -NoProfile -File packaging/Package.ps1
 ## 项目文档
 
 - [架构与恢复机制](docs/architecture.md)
-- [当前版本验证范围](docs/release-0.1.2.md)
+- [当前版本验证范围](docs/release-0.1.4.md)
 - [性能检查](docs/performance-2026-10-12.md)
 
 ## 已知限制

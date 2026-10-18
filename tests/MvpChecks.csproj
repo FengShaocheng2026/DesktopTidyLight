@@ -17,6 +17,7 @@
     <Compile Include="MvpChecks.cs" />
     <Compile Include="PerformanceChecks.cs" />
     <Compile Include="../src/DesktopTidyLight/DesktopScan.cs" />
+    <Compile Include="../src/DesktopTidyLight/DesktopEvents.cs" />
     <Compile Include="UnifiedChecks.cs" />
     <Compile Include="UiRenderCheck.cs" />
     <Compile Include="../src/DesktopTidyLight/Theme.cs" />

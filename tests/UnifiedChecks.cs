@@ -5,6 +5,7 @@ using System.Drawing;
 using System.Drawing.Imaging;
 using System.IO;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Windows.Forms;
 using DesktopTidyLight;
 
@@ -14,11 +15,25 @@ internal static class UnifiedChecks
     private static extern bool SetWindowPos(IntPtr window, IntPtr after, int x, int y, int w, int h, uint flags);
     [System.Runtime.InteropServices.DllImport("user32.dll")]
     private static extern IntPtr GetWindow(IntPtr window, uint command);
+    [DllImport("user32.dll", EntryPoint = "SetWindowLongPtrW")]
+    private static extern IntPtr SetWindowLongPtr(IntPtr window, int index, IntPtr value);
+    [DllImport("user32.dll", EntryPoint = "GetWindowLongPtrW")]
+    private static extern IntPtr GetWindowLongPtr(IntPtr window, int index);
+    [DllImport("user32.dll")]
+    private static extern bool IsWindowVisible(IntPtr window);
     private static bool IsAbove(IntPtr top, IntPtr lower)
     {
         for (var current = GetWindow(lower, 3); current != IntPtr.Zero; current = GetWindow(current, 3))
             if (current == top) return true;
         return false;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct WindowPosition
+    {
+        internal IntPtr Window, After;
+        internal int X, Y, Width, Height;
+        internal uint Flags;
     }
 
     private sealed class Desktop : IDesktopView
@@ -44,6 +59,78 @@ internal static class UnifiedChecks
     {
         int count = 0;
         Action<string, Action> check = (name, test) => { test(); count++; Console.WriteLine("PASS unified: " + name); };
+        check("automatic window raises re-anchor both layers instead of preserving stale order", () =>
+        {
+            using (var frame = new GroupFrame(Group("order")))
+            {
+                var flags = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
+                var owner = new IntPtr(1234);
+                typeof(GroupFrame).GetField("desktopOwner", flags).SetValue(frame, owner);
+                var constrain = typeof(GroupFrame).GetMethod("ConstrainDesktopOrder", flags);
+                IntPtr memory = Marshal.AllocHGlobal(Marshal.SizeOf(typeof(WindowPosition)));
+                try
+                {
+                    foreach (bool background in new[] { false, true })
+                    foreach (var after in new[] { IntPtr.Zero, new IntPtr(-1), new IntPtr(4321) })
+                    {
+                        var position = new WindowPosition { After = after, X = 12, Y = 34, Width = 420, Height = 360, Flags = 0x10 };
+                        Marshal.StructureToPtr(position, memory, false);
+                        constrain.Invoke(frame, new object[] { Message.Create(IntPtr.Zero, 0x46, IntPtr.Zero, memory), background });
+                        position = (WindowPosition)Marshal.PtrToStructure(memory, typeof(WindowPosition));
+                        Assert(position.After == (background ? frame.Handle : owner), "raise was not redirected to desktop");
+                        Assert((position.Flags & 0x4) == 0 && (position.Flags & 0x210) == 0x210, "order frozen or activation/owner protection lost");
+                        Assert(position.X == 12 && position.Y == 34 && position.Width == 420 && position.Height == 360, "geometry changed");
+                    }
+                    Marshal.StructureToPtr(new WindowPosition { After = new IntPtr(99), Flags = 0x4 }, memory, false);
+                    constrain.Invoke(frame, new object[] { Message.Create(IntPtr.Zero, 0x46, IntPtr.Zero, memory), false });
+                    Assert(((WindowPosition)Marshal.PtrToStructure(memory, typeof(WindowPosition))).After == new IntPtr(99), "geometry-only request changed order");
+                }
+                finally { Marshal.FreeHGlobal(memory); }
+            }
+        });
+        check("hidden native frame stays hidden during attachment and rejects actual topmost requests", () =>
+        {
+            using (var owner = new Form())
+            using (var frame = new GroupFrame(Group("native-order")))
+            {
+                var flags = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
+                typeof(GroupFrame).GetField("desktopOwner", flags).SetValue(frame, owner.Handle);
+                SetWindowLongPtr(frame.Handle, -8, owner.Handle);
+                frame.SetScreenBounds(new Rectangle(-24000, -24000, 420, 360));
+                Assert(!IsWindowVisible(frame.Handle), "positioning showed frame before explicit Show");
+                Assert(frame.IsDesktopWindow(owner.Handle) && !frame.IsDesktopWindow(frame.Handle), "desktop detection matched an ordinary window");
+                Assert(SetWindowPos(frame.Handle, new IntPtr(-1), 0, 0, 0, 0, 0x13), "native topmost request failed");
+                Assert((GetWindowLongPtr(frame.Handle, -20).ToInt64() & 8) == 0, "native request made frame topmost");
+                Assert(!IsWindowVisible(frame.Handle), "order repair showed hidden frame");
+            }
+        });
+        check("desktop events detect refresh and child movement but ignore unrelated windows and selection", () =>
+        {
+            // Hidden controls provide real HWNDs without showing a window or touching Explorer.
+            using (var host = new Control())
+            using (var child = new Control())
+            using (var unrelated = new Control())
+            using (var events = new DesktopEvents())
+            {
+                host.Controls.Add(child);
+                var hostWindow = host.Handle; var childWindow = child.Handle; var otherWindow = unrelated.Handle;
+                events.Watch(hostWindow, (uint)Process.GetCurrentProcess().Id);
+                long revision = events.Revision;
+                foreach (uint kind in new uint[] { 0x8000, 0x8001, 0x8002, 0x8003, 0x8004, 0x800B, 0x800C })
+                { events.Observe(kind, childWindow); Assert(events.Revision == ++revision, "refresh event missed"); }
+                events.Observe(0x800B, hostWindow); Assert(events.Revision == ++revision, "view movement missed");
+                events.Observe(0x800B, otherWindow); events.Observe(0x8006, childWindow); events.Observe(0x800B, IntPtr.Zero);
+                Assert(events.Revision == revision, "unrelated event requested scan");
+                int orderChanges = 0; events.OrderChanged += () => orderChanges++;
+                events.Observe(3, otherWindow); Assert(orderChanges == 1 && events.Revision == revision, "foreground did not request independent order repair");
+                events.Watch(hostWindow, (uint)Process.GetCurrentProcess().Id);
+                Assert(events.Revision == revision, "unchanged desktop invalidated snapshot");
+                events.Watch(otherWindow, (uint)Process.GetCurrentProcess().Id);
+                Assert(events.Revision == ++revision, "recreated view did not invalidate snapshot");
+                events.Dispose(); events.Observe(0x800B, otherWindow); events.Observe(3, otherWindow);
+                Assert(events.Revision == revision && orderChanges == 1, "disposed observer remained active");
+            }
+        });
         check("unchanged transparency does not save repeatedly and final drag value flushes", () =>
         {
             using (var slider = new TransparencySlider { Width = 212, Value = 50 })

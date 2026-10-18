@@ -36,6 +36,9 @@ namespace DesktopTidyLight
         private long retryAfter;
         private Rectangle[] knownScreens = new Rectangle[0];
         private readonly DesktopScan scan = new DesktopScan();
+        private readonly DesktopEvents desktopEvents = new DesktopEvents();
+        private long scannedRevision;
+        private bool orderQueued;
         private Layout scannedLayout;
         private SettingsForm settingsWindow;
 
@@ -46,6 +49,7 @@ namespace DesktopTidyLight
             this.createEvent = createEvent; this.restoreEvent = restoreEvent; this.unregisterEvent = unregisterEvent;
             this.settingsEvent = settingsEvent;
             var handle = dispatcher.Handle;
+            desktopEvents.OrderChanged += QueueDesktopOrder;
             var menu = Theme.Menu();
             menu.Items.Add("设置", null, (s, e) => ShowSettings());
             menu.Items.Add("退出", null, (s, e) => Restore(true, false));
@@ -84,38 +88,59 @@ namespace DesktopTidyLight
             origin = desktop.Origin; spacing = desktop.Spacing; environmentChanged = false;
             knownScreens = Screens(); retryAfter = 0;
             viewWindow = desktop.ViewWindow; explorerProcessId = desktop.ProcessId;
+            try { desktopEvents.Watch(viewWindow, explorerProcessId); }
+            catch (System.ComponentModel.Win32Exception error)
+            { Notify("桌面变化监听不可用", "暂时使用定时检查。" + error.Message); }
+        }
+
+        private void QueueDesktopOrder()
+        {
+            if (closing || orderQueued || dispatcher.IsDisposed) return;
+            orderQueued = true;
+            dispatcher.BeginInvoke(new Action(() => { orderQueued = false; MaintainDesktopOrder(); }));
+        }
+
+        private void MaintainDesktopOrder()
+        {
+            if (closing || frames.Count == 0) return;
+            var foreground = GetForegroundWindow();
+            uint foregroundProcess;
+            if (foreground == IntPtr.Zero || GetWindowThreadProcessId(foreground, out foregroundProcess) == 0 ||
+                foregroundProcess == ownProcessId || frames.Any(f => f.IsDesktopWindow(foreground))) return;
+            try
+            {
+                foreach (var frame in frames.ToArray())
+                    if (!frame.IsDisposed && frame.IsAbove(foreground)) frame.RestoreDesktopOrder();
+            }
+            catch (System.ComponentModel.Win32Exception) { environmentChanged = true; }
         }
 
         private void Tick()
         {
+            MaintainDesktopOrder();
             if (closing || busy || IconCanvas.DragInProgress) return;
             if (unregisterEvent.WaitOne(0)) { Restore(true, true); return; }
             if (restoreEvent.WaitOne(0)) { Restore(true, false); return; }
             if (createEvent.WaitOne(0)) { CreateGroup(); return; }
             if (settingsEvent.WaitOne(0)) { ShowSettings(); return; }
             if (paused || controller.State.Groups.Count == 0 || frames.Any(f => f.IsDragging)) return;
-            var foreground = GetForegroundWindow();
-            uint foregroundProcess;
-            if (foreground != IntPtr.Zero && GetWindowThreadProcessId(foreground, out foregroundProcess) != 0 &&
-                foregroundProcess != ownProcessId && foregroundProcess != explorerProcessId)
-                foreach (var frame in frames)
-                    if (!frame.IsDisposed && frame.IsAbove(foreground)) frame.RestoreDesktopOrder();
             if (Control.MouseButtons != MouseButtons.None) { mouseWasDown |= DesktopDrop.IsDesktop(Cursor.Position); return; }
             long now = System.Diagnostics.Stopwatch.GetTimestamp();
             if (now < retryAfter) return;
             var snapshot = scan.Take();
             if (snapshot == null)
             {
-                if (!mouseWasDown && !environmentChanged && now < nextSync) return;
+                if (!mouseWasDown && !environmentChanged && scannedRevision == desktopEvents.Revision && now < nextSync) return;
                 if (scan.Start())
                 {
                     scannedLayout = controller.State; mouseWasDown = false;
+                    scannedRevision = desktopEvents.Revision;
                     nextSync = now + System.Diagnostics.Stopwatch.Frequency * 3;
                 }
                 return;
             }
             // A user edit while scanning invalidates the snapshot. Never apply stale membership.
-            if (!ReferenceEquals(scannedLayout, controller.State)) { nextSync = 0; return; }
+            if (!ReferenceEquals(scannedLayout, controller.State) || scannedRevision != desktopEvents.Revision) { nextSync = 0; return; }
             busy = true;
             try
             {
@@ -230,7 +255,7 @@ namespace DesktopTidyLight
                     frame.Icons.RemoveRequested += ids => RunAction(desktop => { controller.RemoveMembers(desktop, ids, Screens()); RefreshFrames(); });
                     frame.Icons.ReorderRequested += ids => RunAction(desktop => { controller.Reorder(targetFrame.Data.Id, ids); RefreshFrames(); });
                     frames.Add(frame);
-                    try { frame.Show(); frame.AttachToDesktop(); }
+                    try { frame.AttachToDesktop(); frame.Show(); frame.RestoreDesktopOrder(); }
                     catch { frame.Dispose(); frames.Remove(frame); throw; }
                 }
                 frame.LoadData(group);
@@ -403,7 +428,7 @@ namespace DesktopTidyLight
 
         protected override void ExitThreadCore()
         {
-            timer.Stop(); scan.Dispose();
+            timer.Stop(); desktopEvents.Dispose(); scan.Dispose();
             SystemEvents.DisplaySettingsChanged -= DisplayChanged;
             SystemEvents.UserPreferenceChanged -= WorkAreaChanged;
             SystemEvents.SessionEnding -= SessionEnding;
