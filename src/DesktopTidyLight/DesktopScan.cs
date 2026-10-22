@@ -12,25 +12,29 @@ namespace DesktopTidyLight
         internal List<DesktopItem> Items;
         internal Point Origin;
         internal Size Spacing;
+        internal int IconSize;
         internal int Flags;
+        internal bool IconsVisible;
         internal IntPtr ViewWindow;
         internal uint ProcessId;
         internal Exception Error;
         internal static DesktopSnapshot Read()
         {
             using (var desktop = new DesktopShell())
-                return new DesktopSnapshot { Items = desktop.Items(), Origin = desktop.Origin, Spacing = desktop.Spacing,
-                    Flags = desktop.PositioningFlags, ViewWindow = desktop.ViewWindow, ProcessId = desktop.ProcessId };
+                return new DesktopSnapshot { Items = desktop.Items(), Origin = desktop.Origin, Spacing = desktop.Spacing, IconSize = desktop.IconSize,
+                    Flags = desktop.PositioningFlags, IconsVisible = desktop.IconsVisible, ViewWindow = desktop.ViewWindow, ProcessId = desktop.ProcessId };
         }
-        internal bool NeedsSync(Layout state, Rectangle[] screens)
+        internal bool NeedsSync(Layout state, Rectangle[] screens, bool desktopChanged = false)
         {
+            // A superseded snapshot is only a hint; force a fresh, identity-checked sync.
+            if (desktopChanged || (state.OriginalIconsVisible.HasValue && IconsVisible)) return true;
             var byId = Items.ToLookup(i => i.Id, StringComparer.OrdinalIgnoreCase);
             foreach (var member in state.Members)
             {
                 var item = byId[member.Id].FirstOrDefault();
                 if (item == null || member.Identity == null || item.Identity != member.Identity || !string.Equals(item.Id, member.Id, StringComparison.Ordinal)) return true;
             }
-            return LayoutController.Parking(state, Items, Origin, screens).Count != 0;
+            return false;
         }
     }
 
@@ -41,6 +45,7 @@ namespace DesktopTidyLight
         private bool running, disposed;
         private Thread worker;
         private DesktopSnapshot completed;
+        internal event Action Completed;
         internal DesktopScan(Func<DesktopSnapshot> read = null) { this.read = read ?? DesktopSnapshot.Read; }
         internal bool Start()
         {
@@ -67,11 +72,17 @@ namespace DesktopTidyLight
                 }
                 DesktopSnapshot result;
                 try { result = read(); } catch (Exception error) { result = new DesktopSnapshot { Error = error }; }
-                lock (gate) { if (!disposed) completed = result; running = false; }
+                Action notify;
+                lock (gate)
+                {
+                    if (disposed) return;
+                    completed = result; running = false; notify = Completed;
+                }
+                notify?.Invoke();
             }
         }
         internal DesktopSnapshot Take()
         { lock (gate) { var result = completed; completed = null; return result; } }
-        public void Dispose() { lock (gate) { disposed = true; completed = null; Monitor.Pulse(gate); } }
+        public void Dispose() { lock (gate) { disposed = true; completed = null; Completed = null; Monitor.Pulse(gate); } }
     }
 }

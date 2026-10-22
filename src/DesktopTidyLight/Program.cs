@@ -21,7 +21,7 @@ namespace DesktopTidyLight
                 try
                 {
                     using (var desktop = new DesktopShell())
-                        File.WriteAllText(args[1], "items=" + desktop.Items().Count + ", autoArrange=" + desktop.AutoArrange + ", positioningFlags=" + desktop.PositioningFlags + ", origin=" + desktop.Origin + ", spacing=" + desktop.Spacing);
+                        File.WriteAllText(args[1], "items=" + desktop.Items().Count + ", iconsVisible=" + desktop.IconsVisible + ", autoArrange=" + desktop.AutoArrange + ", positioningFlags=" + desktop.PositioningFlags + ", origin=" + desktop.Origin + ", spacing=" + desktop.Spacing);
                 }
                 catch (Exception error) { File.WriteAllText(args[1], error.ToString()); }
                 return;

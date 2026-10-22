@@ -18,33 +18,9 @@ namespace DesktopTidyLight
 
         private void Commit(Layout next) { save(next); State = next; }
 
-        // Only membership changes / Explorer resets touch native icons. Frame movement never does.
-        internal static Dictionary<string, Point> Parking(Layout state, IList<DesktopItem> items, Point origin, Rectangle[] screens)
-        {
-            var result = new Dictionary<string, Point>(StringComparer.OrdinalIgnoreCase);
-            int left = screens.Min(s => s.Left) - origin.X;
-            int top = screens.Min(s => s.Top) - origin.Y;
-            // Outside the complete virtual desktop, including monitors with negative coordinates.
-            // Distinct rows avoid ambiguous overlapping positions during journal recovery.
-            int x = left - 2048;
-            var byId = items.ToDictionary(i => i.Id, StringComparer.OrdinalIgnoreCase);
-            for (int i = 0; i < state.Members.Count; i++)
-            {
-                var m = state.Members[i]; DesktopItem item;
-                if (byId.TryGetValue(m.Id, out item))
-                {
-                    var target = new Point(x - (i / 64) * 512, top - 1024 - (i % 64) * 512);
-                    if (item.Position != target) result.Add(m.Id, target);
-                }
-            }
-            return result;
-        }
-
-        private Rectangle[] unifiedScreens;
         private void StartUnified(IDesktopView desktop, Rectangle[] screens)
         {
             Recover(desktop);
-            unifiedScreens = screens;
             var next = State.Copy(); var items = desktop.Items(); MatchMembers(next, items);
             if (!next.SessionActive)
                 foreach (var m in next.Members)
@@ -55,25 +31,27 @@ namespace DesktopTidyLight
             if (next.Groups.Count > 0)
             {
                 if (!next.OriginalFolderFlags.HasValue) next.OriginalFolderFlags = desktop.PositioningFlags;
+                if (!next.OriginalIconsVisible.HasValue) next.OriginalIconsVisible = desktop.IconsVisible;
                 next.SessionActive = true;
             }
-            Apply(desktop, next, Parking(next, items, desktop.Origin, screens), next.Groups.Count > 0 ? 0 : desktop.PositioningFlags);
+            Apply(desktop, next, new Dictionary<string, Point>(), next.Groups.Count > 0 ? 0 : desktop.PositioningFlags,
+                finalVisibility: next.Groups.Count > 0 ? (bool?)false : null);
         }
 
         private void CreateUnified(IDesktopView desktop, GroupData group, Rectangle[] screens)
         {
             var next = State.Copy(); next.Groups.Add(group);
             if (!next.OriginalFolderFlags.HasValue) next.OriginalFolderFlags = desktop.PositioningFlags;
-            next.SessionActive = true; unifiedScreens = screens;
-            Apply(desktop, next, new Dictionary<string, Point>(), 0);
+            if (!next.OriginalIconsVisible.HasValue) next.OriginalIconsVisible = desktop.IconsVisible;
+            next.SessionActive = true;
+            Apply(desktop, next, new Dictionary<string, Point>(), 0, finalVisibility: false);
         }
 
         private bool SyncUnified(IDesktopView desktop)
         {
             var next = State.Copy(); var items = desktop.Items(); MatchMembers(next, items);
-            var targets = Parking(next, items, desktop.Origin, unifiedScreens);
-            bool changed = targets.Count > 0 || !next.Members.Select(m => m.Id).SequenceEqual(State.Members.Select(m => m.Id));
-            if (changed) Apply(desktop, next, targets, 0);
+            bool changed = desktop.IconsVisible || !next.Members.Select(m => m.Id).SequenceEqual(State.Members.Select(m => m.Id));
+            if (changed) Apply(desktop, next, new Dictionary<string, Point>(), 0, finalVisibility: false);
             return changed;
         }
 
@@ -94,7 +72,7 @@ namespace DesktopTidyLight
                     OriginalX = item.Position.X + desktop.Origin.X, OriginalY = item.Position.Y + desktop.Origin.Y });
                 else m.GroupId = groupId;
             }
-            Apply(desktop, next, Parking(next, items, desktop.Origin, unifiedScreens), 0);
+            Apply(desktop, next, new Dictionary<string, Point>(), 0, finalVisibility: false);
         }
 
         internal void SaveGroup(string id, Rectangle bounds, string name, DisplayInfo[] monitors = null)
@@ -136,13 +114,22 @@ namespace DesktopTidyLight
         internal void RemoveMembers(IDesktopView desktop, IEnumerable<string> ids, Rectangle[] screens, Point? dropPoint = null)
         {
             var next = State.Copy(); var items = desktop.Items(); MatchMembers(next, items);
-            var selected = new HashSet<string>(ids, StringComparer.OrdinalIgnoreCase);
+            var ordered = ids.Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+            var selected = new HashSet<string>(ordered, StringComparer.OrdinalIgnoreCase);
             var members = next.Members.Where(m => selected.Contains(m.Id)).ToList();
+            if (dropPoint.HasValue)
+            {
+                var batch = ordered.Select(id => items.FirstOrDefault(i => string.Equals(i.Id, id, StringComparison.OrdinalIgnoreCase))).ToArray();
+                if (batch.Any(i => i == null || i.Identity == null))
+                    throw new InvalidOperationException("部分桌面项目已变化，请重新拖动。");
+                members = batch.Select(i => new MemberData { Id = i.Id, Identity = i.Identity }).ToList();
+            }
+            var visibleItems = items.Where(i => selected.Contains(i.Id) || !next.Members.Any(m => string.Equals(m.Id, i.Id, StringComparison.OrdinalIgnoreCase))).ToList();
             var targets = dropPoint.HasValue
                 ? DesktopDrop.Targets(next, members, items, desktop.Origin, desktop.Spacing, desktop.IconSize, screens, dropPoint.Value)
-                : GridLayout.RestoreTargets(members, items, desktop.Origin, desktop.Spacing, screens, desktop.IconSize);
+                : GridLayout.RestoreTargets(members, visibleItems, desktop.Origin, desktop.Spacing, screens, desktop.IconSize);
             next.Members.RemoveAll(m => selected.Contains(m.Id));
-            Apply(desktop, next, targets, 0);
+            Apply(desktop, next, targets, 0, finalVisibility: false);
         }
     }
 }

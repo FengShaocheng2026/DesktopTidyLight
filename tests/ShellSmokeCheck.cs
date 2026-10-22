@@ -37,12 +37,14 @@ internal static class ShellSmokeCheck
         byte[] userLayout = File.Exists(LayoutStore.Pathname) ? File.ReadAllBytes(LayoutStore.Pathname) : null;
         LayoutController controller = null;
         int originalFlags = -1;
+        bool? originalVisibility = null;
         bool restored = false;
         try
         {
             using (var shell = new DesktopShell())
             {
                 originalFlags = shell.PositioningFlags;
+                originalVisibility = shell.IconsVisible;
                 var before = shell.Items();
                 LayoutStore.Save(new Layout { OriginalFolderFlags = originalFlags,
                     Snapshots = before.Select(i => new PositionData { Id = i.Id, Identity = i.Identity, X = i.Position.X, Y = i.Position.Y }).ToList() }, Path.Combine(root, "before.json"));
@@ -95,18 +97,29 @@ internal static class ShellSmokeCheck
                 controller = new LayoutController(new Layout(), state => LayoutStore.Save(state, layoutPath));
                 if (unified) controller.EnableUnified();
                 controller.Create(shell, group, screens);
+                Action waitForView = () =>
+                {
+                    for (int attempt = 0; attempt < 50; attempt++)
+                    {
+                        var current = shell.Items();
+                        if (owned.Keys.All(id => current.Any(i => string.Equals(i.Id, id, StringComparison.OrdinalIgnoreCase) && i.Identity == owned[id]))) return;
+                        Thread.Sleep(100);
+                    }
+                    throw new Exception("Desktop did not finish rebuilding after a visibility change.");
+                };
+                waitForView();
                 var unrelated = shell.Items().Where(i => !owned.ContainsKey(i.Id)).ToDictionary(i => i.Id, i => i.Position, StringComparer.OrdinalIgnoreCase);
                 if (unified)
                 {
                     controller.AddMembers(shell, group.Id, owned.Keys);
                     var parked = shell.Items().Where(i => owned.ContainsKey(i.Id)).ToDictionary(i => i.Id, i => i.Position);
-                    if (parked.Count != owned.Count || parked.Values.Any(p => screens.Any(screen => screen.Contains(new Point(p.X + shell.Origin.X, p.Y + shell.Origin.Y)))))
+                    if (parked.Count != owned.Count || shell.IconsVisible)
                         throw new Exception("A native member remains visible.");
                     for (int step = 0; step < 30; step++) controller.SaveGroup(group.Id, new Rectangle(group.X + step, group.Y, 420, 360), group.Name);
                     Verify(shell, parked);
                     if (shell.Items().Any(i => unrelated.ContainsKey(i.Id) && unrelated[i.Id] != i.Position)) throw new Exception("An unrelated icon moved.");
                     if (controller.State.Members.Count != owned.Count) throw new Exception("Multi-item drop lost members.");
-                    Console.WriteLine("PASS unified Shell: whole batch parked outside all displays; 30 group edits leave every native position unchanged");
+                    Console.WriteLine("PASS unified Shell: native drawing disabled; 30 group edits leave every native position unchanged");
                     var release = new Point(screens[0].Right - 200, screens[0].Bottom - 200);
                     var dropTargets = DesktopDrop.Targets(controller.State, controller.State.Members, shell.Items(), shell.Origin, shell.Spacing, shell.IconSize, screens, release);
                     controller.RemoveMembers(shell, owned.Keys, screens, release);
@@ -158,10 +171,12 @@ internal static class ShellSmokeCheck
                 controller.Restore(shell, screens);
                 if (shell.PositioningFlags != originalFlags || controller.State.Members.Count != owned.Count) throw new Exception("Exit lost membership or flags.");
                 controller = new LayoutController(LayoutStore.Load(layoutPath), state => LayoutStore.Save(state, layoutPath));
+                waitForView();
                 controller.Start(shell, screens);
+                waitForView();
                 if (unified)
                 {
-                    if (LayoutController.Parking(controller.State, shell.Items(), shell.Origin, screens).Count != 0) throw new Exception("Restart parking differs.");
+                    if (shell.IconsVisible) throw new Exception("Restart left native icons visible.");
                     if (controller.State.Members.Count != owned.Count) throw new Exception("Restart lost members.");
                 }
                 else Verify(shell, GridLayout.Arrange(controller.State, shell.Items(), controller.State.Groups.Select(g => g.Id), shell.Origin, shell.Spacing, shell.IconSize));
@@ -187,9 +202,16 @@ internal static class ShellSmokeCheck
             {
                 using (var shell = new DesktopShell())
                 {
-                    if (!restored && controller != null)
-                        controller.Restore(shell, Screen.AllScreens.Select(s => s.WorkingArea).ToArray());
-                    if (originalFlags >= 0 && shell.PositioningFlags != originalFlags) shell.SetPositioningFlags(originalFlags);
+                    try
+                    {
+                        if (!restored && controller != null)
+                            controller.Restore(shell, Screen.AllScreens.Select(s => s.WorkingArea).ToArray());
+                    }
+                    finally
+                    {
+                        try { if (originalFlags >= 0 && shell.PositioningFlags != originalFlags) shell.SetPositioningFlags(originalFlags); }
+                        finally { if (originalVisibility.HasValue && shell.IconsVisible != originalVisibility.Value) shell.SetIconsVisible(originalVisibility.Value); }
+                    }
                 }
             }
             catch (Exception error) { Console.Error.WriteLine("Recovery requires attention: " + error.Message); }

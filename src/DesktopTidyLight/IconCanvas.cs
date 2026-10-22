@@ -14,6 +14,13 @@ namespace DesktopTidyLight
     {
         internal const string InternalFormat = "DesktopTidyLight.Members";
         private string[] ids = new string[0];
+        private Dictionary<string, Point> desktopPositions;
+        private Size desktopSpacing;
+        private int desktopIconSize;
+        private HashSet<string> selectionBeforeMarquee;
+        private Rectangle? marquee;
+        internal bool IsDesktopSurface { get { return desktopPositions != null; } }
+        private int ImageSize { get { return IsDesktopSurface ? desktopIconSize : (int)(48 * ScaleFactor); } }
         private readonly Dictionary<string, ShellVisual> visuals = new Dictionary<string, ShellVisual>(StringComparer.OrdinalIgnoreCase);
         private readonly Dictionary<string, Bitmap> cells = new Dictionary<string, Bitmap>(StringComparer.OrdinalIgnoreCase);
         private readonly ShellVisualQueue loading;
@@ -25,7 +32,11 @@ namespace DesktopTidyLight
         private float resolutionScale = 1;
         private int cachedCellWidth;
         private readonly Timer refreshTimer = new Timer { Interval = 2000 };
-        private readonly HashSet<string> selection = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        private HashSet<string> selection = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        internal Func<string[]> DesktopIds;
+        internal event Action SelectionChanged;
+        internal void ShareDesktopSelection(HashSet<string> selected) { selection = selected; }
+        private IEnumerable<string> SelectedItems { get { return (IsDesktopSurface ? DesktopIds?.Invoke() ?? ids : ids).Where(selection.Contains); } }
         private readonly ToolTip tooltip = new ToolTip();
         internal static bool DragInProgress { get; private set; }
         private Point? desktopRelease;
@@ -42,6 +53,8 @@ namespace DesktopTidyLight
         internal event Action<string[]> RemoveRequested;
         internal event Action<string[]> ReorderRequested;
         internal event Action BackgroundMenuRequested;
+        internal event Action<string[], Point> DesktopMenuRequested;
+        internal event Action RefreshRequested;
         private float ScaleFactor { get { return DeviceDpi / 96f * resolutionScale; } }
         internal void SetResolutionScale(float scale)
         {
@@ -50,14 +63,15 @@ namespace DesktopTidyLight
             RefreshVisuals(); Arrange();
         }
         private int Pad { get { return (int)(16 * ScaleFactor); } }
-        private int CellW { get { return Math.Max(1, Math.Min((int)(100 * ScaleFactor), ClientSize.Width - 2 * Pad - (int)(10 * ScaleFactor))); } }
-        private int CellH { get { return (int)(104 * ScaleFactor); } }
+        private int CellW { get { return IsDesktopSurface ? desktopSpacing.Width : Math.Max(1, Math.Min((int)(100 * ScaleFactor), ClientSize.Width - 2 * Pad - (int)(10 * ScaleFactor))); } }
+        private int CellH { get { return IsDesktopSurface ? desktopSpacing.Height : (int)(104 * ScaleFactor); } }
         private int Columns { get { return Math.Max(1, (ClientSize.Width - 2 * Pad - (int)(10 * ScaleFactor)) / CellW); } }
 
         internal IconCanvas(Func<string, int, ShellVisual> loader = null)
         {
             loading = new ShellVisualQueue(loader);
             DoubleBuffered = true; AllowDrop = true; TabStop = true;
+            Cursor = Cursors.Default;
             SetStyle(ControlStyles.Selectable | ControlStyles.ResizeRedraw, true);
             BackColor = Theme.Background; ForeColor = Theme.Text;
             AccessibleName = "分组图标"; AccessibleRole = AccessibleRole.List;
@@ -87,7 +101,9 @@ namespace DesktopTidyLight
         {
             var next = members.Select(m => m.Id).ToArray();
             if (ids.SequenceEqual(next, StringComparer.OrdinalIgnoreCase)) return;
-            ids = next; selection.IntersectWith(ids);
+            if (IsDesktopSurface) selection.ExceptWith(ids.Except(next, StringComparer.OrdinalIgnoreCase));
+            else selection.IntersectWith(next);
+            ids = next;
             ClearCells();
             foreach (string stale in visuals.Keys.Where(k => !ids.Contains(k, StringComparer.OrdinalIgnoreCase)).ToArray())
             { visuals[stale].Dispose(); visuals.Remove(stale); ready.Remove(stale); }
@@ -96,6 +112,45 @@ namespace DesktopTidyLight
             focusIndex = Math.Min(focusIndex, Math.Max(0, ids.Length - 1));
             anchor = Math.Min(anchor, Math.Max(0, ids.Length - 1));
             Arrange(); Invalidate();
+        }
+
+        internal void SetDesktopItems(IEnumerable<DesktopItem> items, Point offset, Size spacing, int iconSize)
+        {
+            var list = items.ToArray();
+            var positions = list.ToDictionary(i => i.Id,
+                i => new Point(i.Position.X + offset.X - GridLayout.LabelInset(spacing, iconSize), i.Position.Y + offset.Y),
+                StringComparer.OrdinalIgnoreCase);
+            bool geometryChanged = desktopPositions == null || desktopSpacing != spacing || desktopIconSize != iconSize ||
+                positions.Count != desktopPositions.Count || positions.Any(p => !desktopPositions.ContainsKey(p.Key) || desktopPositions[p.Key] != p.Value);
+            if (desktopSpacing != spacing || desktopIconSize != iconSize) ClearCells();
+            desktopSpacing = spacing; desktopIconSize = iconSize; desktopPositions = positions;
+            SetMembers(list.Select(i => new MemberData { Id = i.Id }));
+            if (geometryChanged) { Arrange(); Invalidate(); }
+        }
+
+        internal Region ItemRegion()
+        {
+            var region = new Region(); region.MakeEmpty();
+            for (int i = 0; i < ids.Length; i++) region.Union(Cell(i));
+            if (marquee.HasValue && marquee.Value.Width > 0 && marquee.Value.Height > 0)
+                using (var outline = new Region(marquee.Value))
+                { var inner = Rectangle.Inflate(marquee.Value, -2, -2); if (inner.Width > 0 && inner.Height > 0) outline.Exclude(inner); region.Union(outline); }
+            return region;
+        }
+
+        internal void BeginDesktopSelection(bool extend)
+        { selectionBeforeMarquee = extend ? new HashSet<string>(selection, StringComparer.OrdinalIgnoreCase) : new HashSet<string>(StringComparer.OrdinalIgnoreCase); }
+
+        internal void SetDesktopSelection(Rectangle? area, bool active)
+        {
+            marquee = active ? area : null;
+            if (area.HasValue)
+            {
+                selection.ExceptWith(ids);
+                if (selectionBeforeMarquee != null) selection.UnionWith(selectionBeforeMarquee.Where(id => ids.Contains(id, StringComparer.OrdinalIgnoreCase)));
+                for (int i = 0; i < ids.Length; i++) if (area.Value.IntersectsWith(Cell(i))) selection.Add(ids[i]);
+            }
+            Invalidate();
         }
 
         internal void RetryVisuals()
@@ -118,7 +173,7 @@ namespace DesktopTidyLight
         {
             ShellVisual visual;
             if (!visuals.TryGetValue(id, out visual)) visuals.Add(id, visual = ShellVisual.Placeholder(id));
-            if (!ready.Contains(id)) { loading.Request(id, (int)(48 * ScaleFactor)); loadTimer.Start(); }
+            if (!ready.Contains(id)) { loading.Request(id, ImageSize); loadTimer.Start(); }
             return visual;
         }
         internal void RefreshTheme(bool transparent = false) { ClearCells(); BackColor = transparent ? Theme.TransparencyColor : Theme.Background; ForeColor = Theme.Text; Invalidate(); }
@@ -136,18 +191,25 @@ namespace DesktopTidyLight
                 if (selected)
                     using (var fill = new SolidBrush(Theme.Surface))
                     using (var path = Theme.Rounded(Rectangle.Inflate(new Rectangle(Point.Empty, result.Size), -(int)(4 * ScaleFactor), -(int)(4 * ScaleFactor)), 9 * ScaleFactor)) g.FillPath(fill, path);
-                var visual = Visual(id); int size = (int)(48 * ScaleFactor);
-                g.DrawImage(visual.Image, new Rectangle((CellW - size) / 2, (int)(8 * ScaleFactor), size, size));
-                var label = new Rectangle((int)(6 * ScaleFactor), (int)(62 * ScaleFactor), CellW - (int)(12 * ScaleFactor), (int)(36 * ScaleFactor));
-                using (var ink = new SolidBrush(Theme.Text))
+                var visual = Visual(id); int size = ImageSize;
+                int top = IsDesktopSurface ? 0 : (int)(8 * ScaleFactor);
+                g.DrawImage(visual.Image, new Rectangle((CellW - size) / 2, top, size, size));
+                int labelTop = IsDesktopSurface ? size + (int)(4 * ScaleFactor) : (int)(62 * ScaleFactor);
+                var label = new Rectangle((int)(6 * ScaleFactor), labelTop, CellW - (int)(12 * ScaleFactor), Math.Max(1, CellH - labelTop));
+                using (var ink = new SolidBrush(IsDesktopSurface ? Color.White : Theme.Text))
                 using (var format = new StringFormat { Alignment = StringAlignment.Center, Trimming = StringTrimming.EllipsisCharacter, FormatFlags = StringFormatFlags.LineLimit })
+                {
+                    if (IsDesktopSurface)
+                        using (var shadow = new SolidBrush(Color.Black))
+                        { var shadowLabel = label; shadowLabel.Offset(1, 1); g.DrawString(visual.Name, font, shadow, shadowLabel, format); }
                     g.DrawString(visual.Name, font, ink, label, format);
+                }
             }
             cells.Add(key, result); return result;
         }
         private void Arrange()
         {
-            contentHeight = Pad * 2 + ((ids.Length + Columns - 1) / Columns) * CellH;
+            contentHeight = IsDesktopSurface ? 0 : Pad * 2 + ((ids.Length + Columns - 1) / Columns) * CellH;
             scrollY = Math.Min(scrollY, MaxScroll); Invalidate();
         }
         private Rectangle Thumb
@@ -164,10 +226,16 @@ namespace DesktopTidyLight
         protected override void OnSizeChanged(EventArgs e) { base.OnSizeChanged(e); Arrange(); }
         private Rectangle Cell(int index)
         {
+            if (IsDesktopSurface) return new Rectangle(desktopPositions[ids[index]], desktopSpacing);
             return new Rectangle(Pad + index % Columns * CellW, Pad + index / Columns * CellH - scrollY, CellW, CellH);
         }
         private int Hit(Point point)
         {
+            if (IsDesktopSurface)
+            {
+                for (int i = ids.Length - 1; i >= 0; i--) if (Cell(i).Contains(point)) return i;
+                return -1;
+            }
             int x = point.X - Pad, y = point.Y + scrollY - Pad;
             if (x < 0 || y < 0 || x >= Columns * CellW) return -1;
             int index = y / CellH * Columns + x / CellW;
@@ -184,6 +252,7 @@ namespace DesktopTidyLight
             }
             int first = Math.Min(ids.Length, Math.Max(0, (scrollY - Pad) / CellH) * Columns);
             int end = Math.Min(ids.Length, Math.Max(0, (scrollY + Height - Pad) / CellH + 1) * Columns);
+            if (IsDesktopSurface) { first = 0; end = ids.Length; }
             var visible = new HashSet<string>(ids.Skip(first).Take(end - first), StringComparer.OrdinalIgnoreCase);
             loading.Retain(visible);
             int cacheStart = Math.Max(0, first - (end - first));
@@ -200,13 +269,15 @@ namespace DesktopTidyLight
                     using (var path = Theme.Rounded(inner, 7 * ScaleFactor))
                     using (var pen = new Pen(Theme.Accent, ScaleFactor)) e.Graphics.DrawPath(pen, path);
             }
-            if (ids.Length == 0)
+            if (ids.Length == 0 && !IsDesktopSurface)
                 TextRenderer.DrawText(e.Graphics, "拖入桌面图标", Theme.BodyFont, ClientRectangle, Theme.Muted,
                     TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.WordBreak);
             if (MaxScroll > 0)
                 using (var path = Theme.Rounded(Thumb, 3 * ScaleFactor))
                 using (var brush = new SolidBrush(Color.FromArgb(scrolling || scrollHovered ? 240 : 130, Theme.Accent))) e.Graphics.FillPath(brush, path);
             if (dropping) using (var pen = new Pen(Theme.Accent, 3)) e.Graphics.DrawRectangle(pen, 2, 2, Width - 5, Height - 5);
+            if (marquee.HasValue && marquee.Value.Width > 0 && marquee.Value.Height > 0)
+                using (var pen = new Pen(Theme.Accent, 2)) e.Graphics.DrawRectangle(pen, marquee.Value.X, marquee.Value.Y, marquee.Value.Width - 1, marquee.Value.Height - 1);
         }
         protected override void OnMouseDown(MouseEventArgs e)
         {
@@ -218,7 +289,7 @@ namespace DesktopTidyLight
                 return;
             }
             int index = Hit(e.Location);
-            if (index < 0) { selection.Clear(); Invalidate(); if (e.Button == MouseButtons.Right) BackgroundMenuRequested?.Invoke(); return; }
+            if (index < 0) { selection.Clear(); SelectionChanged?.Invoke(); Invalidate(); if (e.Button == MouseButtons.Right) BackgroundMenuRequested?.Invoke(); return; }
             focusIndex = index;
             if ((ModifierKeys & Keys.Shift) != 0)
             {
@@ -228,6 +299,7 @@ namespace DesktopTidyLight
             { if (!selection.Add(ids[index])) selection.Remove(ids[index]); anchor = index; }
             else if (!selection.Contains(ids[index])) { selection.Clear(); selection.Add(ids[index]); anchor = index; }
             Invalidate();
+            SelectionChanged?.Invoke();
             if (e.Button == MouseButtons.Right) { ShowItemMenu(e.Location); return; }
             down = e.Location; pressed = e.Button == MouseButtons.Left;
         }
@@ -247,7 +319,7 @@ namespace DesktopTidyLight
             if (!pressed || e.Button != MouseButtons.Left || selection.Count == 0) return;
             if (Math.Abs(e.X - down.X) < SystemInformation.DragSize.Width && Math.Abs(e.Y - down.Y) < SystemInformation.DragSize.Height) return;
             pressed = false;
-            var batch = ids.Where(selection.Contains).ToArray();
+            var batch = SelectedItems.ToArray();
             // Group transfer uses OLE. A release over the desktop restores positions ourselves;
             // no FileDrop payload is handed to Explorer, so there is no filesystem move/copy.
             var data = new DataObject(); data.SetData(InternalFormat, false, batch);
@@ -282,6 +354,8 @@ namespace DesktopTidyLight
         }
         private void ShowItemMenu(Point at)
         {
+            if (IsDesktopSurface)
+            { DesktopMenuRequested?.Invoke(SelectedItems.ToArray(), PointToScreen(at)); return; }
             var menu = Theme.Menu();
             menu.Items.Add("打开", null, (s, e) => { foreach (var id in ids.Where(selection.Contains)) Open(id); });
             menu.Items.Add("在资源管理器中查看", null, (s, e) =>
@@ -291,16 +365,20 @@ namespace DesktopTidyLight
                 try { Process.Start("explorer.exe", "/select,\"" + id + "\""); }
                 catch (Exception error) { Dialogs.Message(error.Message, "无法打开位置", MessageBoxButtons.OK, MessageBoxIcon.Information); }
             });
-            menu.Items.Add(new ToolStripSeparator());
-            menu.Items.Add("移回普通桌面", null, (s, e) => RemoveRequested?.Invoke(ids.Where(selection.Contains).ToArray()));
+            if (!IsDesktopSurface)
+            {
+                menu.Items.Add(new ToolStripSeparator());
+                menu.Items.Add("移回普通桌面", null, (s, e) => RemoveRequested?.Invoke(ids.Where(selection.Contains).ToArray()));
+            }
             menu.Closed += (s, e) => BeginInvoke(new Action(menu.Dispose)); menu.Show(this, at);
         }
         protected override bool IsInputKey(Keys keyData) { return (keyData & Keys.KeyCode) >= Keys.Left && (keyData & Keys.KeyCode) <= Keys.Down || base.IsInputKey(keyData); }
         protected override void OnKeyDown(KeyEventArgs e)
         {
             base.OnKeyDown(e);
-            if (e.Control && e.KeyCode == Keys.A) { selection.UnionWith(ids); e.Handled = true; }
-            else if (e.KeyCode == Keys.Enter) { foreach (string id in ids.Where(selection.Contains)) Open(id); e.Handled = true; }
+            if (e.Control && e.KeyCode == Keys.A) { selection.UnionWith(IsDesktopSurface ? DesktopIds?.Invoke() ?? ids : ids); e.Handled = true; }
+            else if (e.KeyCode == Keys.F5) { RefreshVisuals(); RefreshRequested?.Invoke(); e.Handled = true; }
+            else if (e.KeyCode == Keys.Enter) { foreach (string id in SelectedItems) Open(id); e.Handled = true; }
             else if (e.KeyCode == Keys.Apps || e.Shift && e.KeyCode == Keys.F10) { ShowItemMenu(new Point(Pad, Pad)); e.Handled = true; }
             else if (e.KeyCode == Keys.Escape) { selection.Clear(); e.Handled = true; }
             else if (ids.Length > 0 && e.KeyCode >= Keys.Left && e.KeyCode <= Keys.Down)
@@ -313,7 +391,7 @@ namespace DesktopTidyLight
                 else if (r.Bottom > Height) scrollY = Math.Min(MaxScroll, scroll + r.Bottom - Height + Pad);
                 e.Handled = true;
             }
-            Invalidate();
+            SelectionChanged?.Invoke(); Invalidate();
         }
         internal void AcceptLeave() { if (dropping) { dropping = false; Invalidate(); } }
         internal void AcceptDrag(DragEventArgs e) { Feedback(e); }
@@ -336,7 +414,8 @@ namespace DesktopTidyLight
             try
             {
                 string[] paths = DropItems.Read(e.Data);
-                if (paths.Length > 0 && paths.All(p => ids.Contains(p, StringComparer.OrdinalIgnoreCase)))
+                if (paths.Length > 0 && IsDesktopSurface) DesktopDropRequested?.Invoke(paths, new Point(e.X, e.Y));
+                else if (paths.Length > 0 && paths.All(p => ids.Contains(p, StringComparer.OrdinalIgnoreCase)))
                 {
                     var reordered = ids.Except(paths, StringComparer.OrdinalIgnoreCase).ToList();
                     int index = Hit(PointToClient(new Point(e.X, e.Y)));

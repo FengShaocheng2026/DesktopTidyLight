@@ -3,6 +3,7 @@
 需要 Windows 11 和 .NET Framework 4.8。解压整个目录后运行 DesktopTidyLight.exe。
 托盘右键：设置、退出。桌面右键可新建分组；图标可整批拖入、拖出分组。
 设置自动保存；退出后图标回到普通桌面，重新启动恢复分组。
+运行期间由程序显示分组和未分组图标，Windows 原生图标保持隐藏。异常退出后请重新启动，或运行 DesktopTidyLight.exe --restore 恢复显示。
 卸载前请先从托盘退出；需要清理本程序右键入口时运行 DesktopTidyLight.exe --unregister。
 个人配置在 %LOCALAPPDATA%\DesktopTidyLight，不随此便携包分发。
 

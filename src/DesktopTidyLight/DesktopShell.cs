@@ -19,17 +19,19 @@ namespace DesktopTidyLight
     internal interface IDesktopView
     {
         int PositioningFlags { get; }
+        bool IconsVisible { get; }
         Point Origin { get; }
         Size Spacing { get; }
         int IconSize { get; }
         List<DesktopItem> Items();
         IList<string> SelectedIds();
         void SetPositioningFlags(int flags);
+        void SetIconsVisible(bool visible);
         void SetPositions(IDictionary<string, Point> positions);
     }
 
     // Each instance keeps all COM calls on its creating STA thread. No desktop files are changed here.
-    internal sealed class DesktopShell : IDisposable, IDesktopView
+    internal sealed partial class DesktopShell : IDisposable, IDesktopView
     {
         private static readonly Guid ServiceProviderId = new Guid("6D5140C1-7436-11CE-8034-00AA006009FA");
         private static readonly Guid BrowserId = new Guid("000214E2-0000-0000-C000-000000000046");
@@ -102,6 +104,8 @@ namespace DesktopTidyLight
         private delegate int QueryServiceCall(IntPtr self, ref Guid service, ref Guid iid, out IntPtr result);
         [UnmanagedFunctionPointer(CallingConvention.StdCall)]
         private delegate int QueryViewCall(IntPtr self, out IntPtr result);
+        [UnmanagedFunctionPointer(CallingConvention.StdCall)]
+        private delegate int ViewCall(IntPtr self);
         [UnmanagedFunctionPointer(CallingConvention.StdCall)]
         private delegate int GetFolderCall(IntPtr self, ref Guid iid, out IntPtr result);
         [UnmanagedFunctionPointer(CallingConvention.StdCall)]
@@ -223,6 +227,32 @@ namespace DesktopTidyLight
         }
 
         public int PositioningFlags { get { return (FolderFlags & 0x4) | (AutoArrange ? 0x1 : 0); } }
+        public bool IconsVisible { get { return (FolderFlags & 0x1000) == 0; } }
+
+        internal void Refresh()
+        {
+            IntPtr shellView = IntPtr.Zero;
+            Guid id = new Guid("000214E3-0000-0000-C000-000000000046");
+            try
+            {
+                Check(Marshal.QueryInterface(view, ref id, out shellView), "IShellView");
+                Check(Method<ViewCall>(shellView, 8)(shellView), "Refresh desktop");
+            }
+            finally { if (shellView != IntPtr.Zero) Marshal.Release(shellView); }
+        }
+
+        public void SetIconsVisible(bool visible)
+        {
+            IntPtr extended = IntPtr.Zero;
+            Guid id = FolderView2Id;
+            try
+            {
+                Check(Marshal.QueryInterface(view, ref id, out extended), "IFolderView2");
+                Check(Method<SetFlagsCall>(extended, 24)(extended, 0x1000, visible ? 0u : 0x1000u), "Set desktop icon visibility");
+                if (IconsVisible != visible) throw new InvalidOperationException("Explorer 没有应用桌面图标显示设置。");
+            }
+            finally { if (extended != IntPtr.Zero) Marshal.Release(extended); }
+        }
 
         public Size Spacing
         {

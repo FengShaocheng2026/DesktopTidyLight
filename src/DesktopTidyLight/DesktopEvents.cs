@@ -20,6 +20,7 @@ namespace DesktopTidyLight
         private uint process;
         internal long Revision { get; private set; }
         internal event Action OrderChanged;
+        internal event Action Changed;
 
         internal DesktopEvents() { callback = OnEvent; }
 
@@ -49,7 +50,8 @@ namespace DesktopTidyLight
             if (kind == 3 || kind == 0x8004) OrderChanged?.Invoke();
             if (view == IntPtr.Zero || window == IntPtr.Zero || (window != view && !IsChild(view, window))) return;
             // Refresh may recreate items, reorder them, or only change their positions.
-            if ((kind >= 0x8000 && kind <= 0x8004) || kind == 0x800B || kind == 0x800C) Revision++;
+            if ((kind >= 0x8000 && kind <= 0x8004) || kind == 0x800B || kind == 0x800C)
+            { Revision++; Changed?.Invoke(); }
         }
 
         public void Dispose()
@@ -57,7 +59,7 @@ namespace DesktopTidyLight
             if (foregroundHook != IntPtr.Zero) UnhookWinEvent(foregroundHook);
             if (desktopHook != IntPtr.Zero) UnhookWinEvent(desktopHook);
             foregroundHook = desktopHook = view = IntPtr.Zero;
-            OrderChanged = null;
+            OrderChanged = Changed = null;
         }
     }
 }

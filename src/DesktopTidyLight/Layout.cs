@@ -56,6 +56,8 @@ namespace DesktopTidyLight
         [DataMember] internal bool SessionActive;
         [DataMember] internal List<PositionData> PendingPositions;
         [DataMember] internal int? PendingFlags;
+        [DataMember] internal bool? OriginalIconsVisible;
+        [DataMember] internal bool? PendingIconsVisible;
 
         internal Layout Copy()
         {

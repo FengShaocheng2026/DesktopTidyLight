@@ -41,6 +41,9 @@ internal static class UnifiedChecks
         internal List<DesktopItem> Data = Enumerable.Range(0, 60).Select(i => new DesktopItem { Id = "item" + i, Identity = "identity" + i, Position = new Point(26 + i % 15 * 100, i / 15 * 100) }).ToList();
         internal int Writes; internal bool Fail;
         public int PositioningFlags { get; set; }
+        public bool IconsVisible { get; set; } = true;
+        internal int VisibilityWrites;
+        public void SetIconsVisible(bool visible) { IconsVisible = visible; VisibilityWrites++; }
         public Point Origin { get; set; }
         public Size Spacing { get { return new Size(100, 100); } }
         public int IconSize { get { return 48; } }
@@ -55,10 +58,221 @@ internal static class UnifiedChecks
     private static Rectangle[] screens = { new Rectangle(-1920, 0, 1920, 1080), new Rectangle(0, 0, 3840, 2160) };
     private static GroupData Group(string id) { return new GroupData { Id = id, Name = id, X = 100, Y = 100, Width = 420, Height = 360 }; }
     private static void Assert(bool condition, string message) { if (!condition) throw new Exception(message); }
+    internal static int NativeVisibility(bool observeOnly = false)
+    {
+        if (!observeOnly && Process.GetProcessesByName("DesktopTidyLight").Length != 0)
+        { Console.Error.WriteLine("Stop DesktopTidyLight before this explicit native visibility check."); return 2; }
+        using (var desktop = new DesktopShell())
+        {
+            bool visible = desktop.IconsVisible;
+            var before = desktop.Items(); int flags = desktop.PositioningFlags;
+            try
+            {
+                if (observeOnly) Assert(!visible, "managed desktop has not disabled native drawing");
+                else desktop.SetIconsVisible(false);
+                for (int pass = 0; pass < 3; pass++)
+                {
+                    desktop.Refresh();
+                    System.Threading.Thread.Sleep(250);
+                    using (var current = new DesktopShell())
+                    {
+                        Assert(!current.IconsVisible, "refresh re-enabled native icon drawing");
+                        Assert(current.Items().Select(i => i.Id).OrderBy(x => x).SequenceEqual(before.Select(i => i.Id).OrderBy(x => x)),
+                            "hiding icons changed desktop enumeration");
+                        Assert(current.PositioningFlags == flags, "visibility changed positioning preferences");
+                    }
+                }
+                Console.WriteLine("PASS native visibility: 3 Shell refreshes kept icons hidden; all " + before.Count + " items remained enumerable.");
+                return 0;
+            }
+            catch (Exception error) { Console.Error.WriteLine(error); return 1; }
+            finally
+            {
+                if (!observeOnly) desktop.SetIconsVisible(visible);
+                Assert(desktop.IconsVisible == visible, "native visibility was not restored");
+            }
+        }
+    }
+
     internal static int Run()
     {
         int count = 0;
         Action<string, Action> check = (name, test) => { test(); count++; Console.WriteLine("PASS unified: " + name); };
+        check("native icons stay hidden through refreshes and restore their original visibility after restart", () =>
+        {
+            foreach (bool visible in new[] { true, false })
+            {
+                var d = new Desktop { IconsVisible = visible }; Layout disk = null;
+                var c = new LayoutController(new Layout(), state => disk = state.Copy());
+                c.EnableUnified(); c.Create(d, Group("one"), screens); c.AddMembers(d, "one", new[] { "item0" });
+                Assert(!d.IconsVisible && disk.OriginalIconsVisible == visible, "original visibility was not saved before hiding");
+                int writes = d.VisibilityWrites;
+                for (int i = 0; i < 5; i++)
+                {
+                    d.Data[0].Position = new Point(50, 50); c.Sync(d);
+                    Assert(!d.IconsVisible && d.VisibilityWrites == writes, "refresh briefly re-enabled native icons");
+                }
+                c = new LayoutController(disk.Copy(), state => disk = state.Copy()); c.Start(d, screens);
+                Assert(c.State.OriginalIconsVisible == visible, "restart forgot original visibility");
+                c.Restore(d, screens);
+                Assert(d.IconsVisible == visible && !c.State.OriginalIconsVisible.HasValue && !c.State.PendingIconsVisible.HasValue,
+                    "restore lost the user's display preference or journal");
+            }
+        });
+        check("visibility changes require a durable journal and rollback restores the native desktop", () =>
+        {
+            var d = new Desktop(); int saves = 0; Layout disk = null;
+            var layout = new Layout { UnifiedIcons = true };
+            var c = new LayoutController(layout, state => { if (++saves == 1) throw new IOException("journal"); disk = state.Copy(); });
+            try { c.Create(d, Group("one"), screens); } catch (RecoveryRequiredException) { }
+            Assert(d.IconsVisible && d.VisibilityWrites == 0, "failed save still hid icons");
+            saves = 0;
+            c = new LayoutController(layout, state => { if (++saves == 2) throw new IOException("commit"); disk = state.Copy(); });
+            try { c.Create(d, Group("one"), screens); } catch (RecoveryRequiredException) { }
+            Assert(d.IconsVisible && disk.Groups.Count == 0 && disk.PendingPositions == null, "failed commit left icons hidden");
+            var interrupted = new Layout { UnifiedIcons = true, PendingPositions = new List<PositionData>(), PendingFlags = 0, PendingIconsVisible = true };
+            d.IconsVisible = false;
+            c = new LayoutController(interrupted, state => disk = state.Copy()); c.Recover(d);
+            Assert(d.IconsVisible && disk.PendingIconsVisible == null, "crash recovery left native icons hidden");
+        });
+        check("an interrupted offscreen-parking session upgrades without losing restore positions", () =>
+        {
+            var d = new Desktop(); var c = new LayoutController(new Layout(), state => { });
+            var original = d.Data[0].Position;
+            c.EnableUnified(); c.Create(d, Group("one"), screens); c.AddMembers(d, "one", new[] { "item0" });
+            var legacy = c.State.Copy(); legacy.OriginalIconsVisible = null;
+            d.Data[0].Position = new Point(-9000, -9000); d.IconsVisible = true;
+            c = new LayoutController(legacy, state => { }); c.Start(d, screens);
+            Assert(!d.IconsVisible && c.State.Members.Count == 1 && c.State.Members[0].OriginalX == original.X,
+                "migration lost a grouped icon or captured its offscreen position");
+            c.Restore(d, screens);
+            Assert(d.IconsVisible && d.Data[0].Position == original, "migration could not restore the old desktop");
+        });
+        check("loose icons move on the managed desktop and transfer into and out of groups", () =>
+        {
+            var d = new Desktop(); var c = new LayoutController(new Layout(), state => { });
+            c.EnableUnified(); c.Create(d, Group("one"), screens); c.AddMembers(d, "one", new[] { "item0" });
+            var untouched = d.Data[2].Position;
+            c.RemoveMembers(d, new[] { "item1" }, screens, new Point(2500, 700));
+            Assert(!d.IconsVisible && c.State.Members.Count == 1 && d.Data[1].Position.X > 2000 && d.Data[2].Position == untouched,
+                "moving a loose icon affected membership or unrelated items");
+            c.AddMembers(d, "one", new[] { "item1" });
+            Assert(c.State.Members.Count == 2, "loose icon could not join group");
+            c.RemoveMembers(d, new[] { "item1" }, screens, new Point(2500, 900));
+            Assert(c.State.Members.Count == 1 && !d.IconsVisible && d.Data[1].Position.X > 2000, "return to managed desktop failed");
+            c.Restore(d, screens, "one");
+            Assert(d.IconsVisible && c.State.Groups.Count == 0, "deleting last group did not restore the desktop");
+        });
+        check("managed desktop uses native positions and only intercepts icon cells", () =>
+        {
+            var data = new GroupData { Id = "desktop", X = -1920, Y = -500, Width = 1920, Height = 1080, Locked = true };
+            using (var frame = new GroupFrame(data, true))
+            {
+                frame.ApplyPreferences(false, 100);
+                frame.SetDesktopItems(new[] { new DesktopItem { Id = "loose", Position = new Point(40, 70) } },
+                    new Point(-1920, -500), new Size(100, 104), 48);
+                Assert(frame.Icons.Bounds == frame.ClientRectangle && frame.Region.IsVisible(40, 70), "native position was not mapped to desktop surface");
+                Assert(!frame.Region.IsVisible(900, 700), "desktop surface blocked the wallpaper context menu");
+                var hit = typeof(IconCanvas).GetMethod("Hit", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+                Assert((int)hit.Invoke(frame.Icons, new object[] { new Point(40, 70) }) == 0 &&
+                    (int)hit.Invoke(frame.Icons, new object[] { new Point(900, 700) }) == -1, "desktop hit testing used group grid");
+                frame.SetDesktopItems(new DesktopItem[0], new Point(-1920, -500), new Size(100, 104), 48);
+                Assert(!frame.Region.IsVisible(40, 70), "removed icon left an invisible input blocker");
+            }
+        });
+        check("managed desktop supports marquee selection, Ctrl extension, native menu requests and refresh", () =>
+        {
+            using (var canvas = new IconCanvas { Size = new Size(600, 400) })
+            {
+                canvas.SetDesktopItems(new[] { new DesktopItem { Id = "one", Position = new Point(30, 20) },
+                    new DesktopItem { Id = "two", Position = new Point(230, 20) } }, Point.Empty, new Size(100, 104), 48);
+                var flags = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
+                var selected = (HashSet<string>)typeof(IconCanvas).GetField("selection", flags).GetValue(canvas);
+                canvas.BeginDesktopSelection(false); canvas.SetDesktopSelection(new Rectangle(0, 0, 150, 150), true);
+                Assert(selected.SetEquals(new[] { "one" }), "marquee did not select the first icon");
+                canvas.BeginDesktopSelection(true); canvas.SetDesktopSelection(new Rectangle(180, 0, 150, 150), false);
+                Assert(selected.SetEquals(new[] { "one", "two" }), "Ctrl marquee lost the original selection");
+                string[] requested = null; canvas.DesktopMenuRequested += (ids, point) => requested = ids;
+                typeof(IconCanvas).GetMethod("ShowItemMenu", flags).Invoke(canvas, new object[] { Point.Empty });
+                Assert(requested != null && requested.Length == 2, "native menu did not receive the selection");
+                int refreshes = 0; canvas.RefreshRequested += () => refreshes++;
+                typeof(IconCanvas).GetMethod("OnKeyDown", flags).Invoke(canvas, new object[] { new KeyEventArgs(Keys.F5) });
+                Assert(refreshes == 1, "F5 did not request desktop refresh");
+                canvas.BeginDesktopSelection(false); canvas.SetDesktopSelection(Rectangle.Empty, false);
+                Assert(selected.Count == 0, "blank desktop click did not clear selection");
+            }
+        });
+        check("desktop selection spans monitors without losing the other monitor's items", () =>
+        {
+            using (var first = new IconCanvas { Size = new Size(600, 400) })
+            using (var second = new IconCanvas { Size = new Size(600, 400) })
+            {
+                var selected = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                var all = new[] { "left", "right" };
+                foreach (var entry in new[] { Tuple.Create(first, "left"), Tuple.Create(second, "right") })
+                {
+                    entry.Item1.SetDesktopItems(new[] { new DesktopItem { Id = entry.Item2, Position = new Point(30, 20) } }, Point.Empty, new Size(100, 104), 48);
+                    entry.Item1.ShareDesktopSelection(selected); entry.Item1.DesktopIds = () => all;
+                    entry.Item1.BeginDesktopSelection(false);
+                }
+                first.SetDesktopSelection(new Rectangle(0, 0, 150, 150), false);
+                second.SetDesktopSelection(new Rectangle(0, 0, 150, 150), false);
+                Assert(selected.SetEquals(all), "second monitor replaced the first selection");
+                string[] requested = null; first.DesktopMenuRequested += (ids, point) => requested = ids;
+                var flags = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
+                typeof(IconCanvas).GetMethod("ShowItemMenu", flags).Invoke(first, new object[] { Point.Empty });
+                Assert(requested.SequenceEqual(all), "cross-monitor operation lost selected items");
+                selected.Clear();
+                typeof(IconCanvas).GetMethod("OnKeyDown", flags).Invoke(first, new object[] { new KeyEventArgs(Keys.Control | Keys.A) });
+                Assert(selected.SetEquals(all), "Ctrl+A selected only the current monitor");
+                first.SetDesktopItems(new DesktopItem[0], Point.Empty, new Size(100, 104), 48);
+                Assert(selected.SetEquals(new[] { "right" }), "removing one monitor's icon cleared another monitor's selection");
+            }
+        });
+        check("icon canvas keeps its arrow after crossing a movable header or resize border", () =>
+        {
+            using (var frame = new GroupFrame(Group("cursor")))
+            {
+                var move = typeof(GroupFrame).GetMethod("OnMouseMove", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+                foreach (var point in new[] { new Point(100, 20), new Point(1, 100), new Point(1, 1) })
+                {
+                    move.Invoke(frame, new object[] { new MouseEventArgs(MouseButtons.None, 0, point.X, point.Y, 0) });
+                    Assert(frame.Cursor != Cursors.Default, "header/border lost its interaction cursor");
+                    Assert(frame.Icons.Cursor == Cursors.Default, "icon canvas inherited the frame drag/resize cursor");
+                }
+            }
+        });
+        check("temporary refresh omission cannot delete a member whose file still exists", () =>
+        {
+            string path = Path.GetTempFileName();
+            try
+            {
+                var d = new Desktop(); int saves = 0;
+                var c = new LayoutController(new Layout(), state => saves++);
+                var item = d.Data[0]; item.Id = path; item.Identity = DesktopShell.FileIdentity(path);
+                Assert(item.Identity != null, "temporary file identity unavailable");
+                c.EnableUnified(); c.Create(d, Group("one"), screens); c.AddMembers(d, "one", new[] { path });
+                var original = new Point(c.State.Members[0].OriginalX, c.State.Members[0].OriginalY);
+                int before = saves, writes = d.Writes;
+                d.Data.Remove(item);
+                bool deferred = false;
+                try { c.Sync(d); } catch (InvalidOperationException) { deferred = true; }
+                Assert(deferred && c.State.Members.Count == 1 && saves == before && d.Writes == writes,
+                    "incomplete view removed membership or wrote a layout");
+                deferred = false;
+                try { c.Start(d, screens); } catch (DesktopNotReadyException) { deferred = true; }
+                Assert(deferred && c.State.Members.Count == 1 && saves == before && d.Writes == writes,
+                    "desktop restart discarded a temporarily missing member");
+                item.Position = new Point(40, 40); d.Data.Add(item);
+                c.Sync(d);
+                Assert(!d.IconsVisible && c.State.Members.Count == 1, "returning member lost managed visibility");
+                Assert(c.State.Members[0].OriginalX == original.X && c.State.Members[0].OriginalY == original.Y,
+                    "refresh overwrote original desktop position");
+                File.Delete(path); d.Data.Remove(item);
+                Assert(c.Sync(d) && c.State.Members.Count == 0, "actually deleted file was retained");
+            }
+            finally { File.Delete(path); }
+        });
         check("automatic window raises re-anchor both layers instead of preserving stale order", () =>
         {
             using (var frame = new GroupFrame(Group("order")))
@@ -116,11 +330,13 @@ internal static class UnifiedChecks
                 var hostWindow = host.Handle; var childWindow = child.Handle; var otherWindow = unrelated.Handle;
                 events.Watch(hostWindow, (uint)Process.GetCurrentProcess().Id);
                 long revision = events.Revision;
+                int changes = 0; events.Changed += () => changes++;
                 foreach (uint kind in new uint[] { 0x8000, 0x8001, 0x8002, 0x8003, 0x8004, 0x800B, 0x800C })
                 { events.Observe(kind, childWindow); Assert(events.Revision == ++revision, "refresh event missed"); }
                 events.Observe(0x800B, hostWindow); Assert(events.Revision == ++revision, "view movement missed");
                 events.Observe(0x800B, otherWindow); events.Observe(0x8006, childWindow); events.Observe(0x800B, IntPtr.Zero);
                 Assert(events.Revision == revision, "unrelated event requested scan");
+                Assert(changes == 8, "desktop changes did not wake sync or unrelated events woke it");
                 int orderChanges = 0; events.OrderChanged += () => orderChanges++;
                 events.Observe(3, otherWindow); Assert(orderChanges == 1 && events.Revision == revision, "foreground did not request independent order repair");
                 events.Watch(hostWindow, (uint)Process.GetCurrentProcess().Id);
@@ -129,6 +345,7 @@ internal static class UnifiedChecks
                 Assert(events.Revision == ++revision, "recreated view did not invalidate snapshot");
                 events.Dispose(); events.Observe(0x800B, otherWindow); events.Observe(3, otherWindow);
                 Assert(events.Revision == revision && orderChanges == 1, "disposed observer remained active");
+                Assert(changes == 8, "disposed observer still requested sync");
             }
         });
         check("unchanged transparency does not save repeatedly and final drag value flushes", () =>
@@ -148,7 +365,7 @@ internal static class UnifiedChecks
                 Assert(saves == 1, "keyboard limit saved repeatedly");
             }
         });
-        check("dual 4K desktop reflow reparks members outside both monitors", () =>
+        check("dual 4K desktop reflow keeps native drawing disabled without moving icons", () =>
         {
             var d = new Desktop(); var c = new LayoutController(new Layout(), state => { });
             c.EnableUnified(); c.Create(d, Group("one"), screens);
@@ -157,9 +374,9 @@ internal static class UnifiedChecks
             d.Origin = new Point(-3840, -4);
             foreach (var item in d.Data) item.Position = new Point(23, 171);
             c.Start(d, dual);
-            Assert(d.Data.All(item => !dual.Any(r => r.Contains(new Point(item.Position.X + d.Origin.X, item.Position.Y + d.Origin.Y)))), "member leaked to secondary display");
+            Assert(!d.IconsVisible && d.Writes == 0, "reset exposed native icons or moved them");
             foreach (var item in d.Data) item.Position = new Point(154, 171);
-            Assert(c.Sync(d) && LayoutController.Parking(c.State, d.Items(), d.Origin, dual).Count == 0, "later Explorer reflow was not repaired");
+            c.Sync(d); Assert(!d.IconsVisible && d.Writes == 0, "later reflow exposed or moved native icons");
             Assert(c.State.Members.Count == 60 && c.State.PendingPositions == null, "reflow lost membership or journal");
         });
         check("60-item batch, no Shell writes during 120 frame geometry changes, persistent order and restore", () =>
@@ -169,7 +386,7 @@ internal static class UnifiedChecks
             controller.EnableUnified(); controller.Create(desktop, Group("one"), screens);
             controller.AddMembers(desktop, "one", desktop.Data.Select(i => i.Id));
             Assert(controller.State.Members.Count == 60, "batch lost items");
-            Assert(desktop.Data.All(i => !screens.Any(r => r.Contains(i.Position))), "parked member visible");
+            Assert(!desktop.IconsVisible && desktop.Writes == 0, "grouping moved or exposed native icons");
             int writes = desktop.Writes;
             for (int i = 0; i < 120; i++) controller.SaveGroup("one", new Rectangle(i, i, 420, 360), "one");
             Assert(desktop.Writes == writes, "geometry touched Shell");
@@ -178,7 +395,7 @@ internal static class UnifiedChecks
             Assert(!disk.SessionActive && disk.Members.Count == 60 && desktop.PositioningFlags == 5, "exit did not restore");
             controller = new LayoutController(disk.Copy(), state => disk = state.Copy()); controller.Start(desktop, screens);
             Assert(controller.State.Members.Select(m => m.Id).SequenceEqual(order) && disk.AutoHideTitle && disk.Skin == "plum", "restart lost settings/order");
-            Assert(LayoutController.Parking(controller.State, desktop.Items(), desktop.Origin, screens).Count == 0, "restart did not park");
+            Assert(!desktop.IconsVisible, "restart did not suppress native drawing");
         });
         check("whole batch validation, transfer and explicit return to desktop", () =>
         {
@@ -193,12 +410,12 @@ internal static class UnifiedChecks
             c.RemoveMembers(desktop, new[] { "item0", "item1" }, screens);
             Assert(c.State.Members.Count == 1 && screens.Any(r => r.Contains(desktop.Data[0].Position)), "explicit removal failed");
         });
-        check("partial parking failure rolls back every item and membership", () =>
+        check("grouping no longer depends on native icon movement", () =>
         {
             var d = new Desktop(); var c = new LayoutController(new Layout(), state => { }); c.EnableUnified(); c.Create(d, Group("one"), screens);
             var before = d.Items(); d.Fail = true;
-            try { c.AddMembers(d, "one", new[] { "item0", "item1" }); throw new Exception("failure not detected"); } catch (RecoveryRequiredException) { }
-            Assert(c.State.Members.Count == 0 && d.Data.Select(i => i.Position).SequenceEqual(before.Select(i => i.Position)), "rollback failed");
+            c.AddMembers(d, "one", new[] { "item0", "item1" });
+            Assert(c.State.Members.Count == 2 && d.Writes == 0 && d.Data.Select(i => i.Position).SequenceEqual(before.Select(i => i.Position)), "grouping still moved native icons");
         });
         check("crash session restart preserves original desktop positions", () =>
         {
@@ -426,6 +643,34 @@ internal static class UnifiedChecks
                 Assert(threads.Count == 1, "periodic scans created new threads");
             }
         });
+        check("desktop scan wakes its consumer as soon as a complete snapshot is available", () =>
+        {
+            using (var ready = new System.Threading.ManualResetEvent(false))
+            using (var scan = new DesktopScan(() => new DesktopSnapshot { Items = new List<DesktopItem>() }))
+            {
+                DesktopSnapshot received = null;
+                scan.Completed += () => { received = scan.Take(); ready.Set(); };
+                Assert(scan.Start() && ready.WaitOne(3000), "completion did not wake the consumer");
+                Assert(received != null && received.Items.Count == 0 && received.Error == null,
+                    "completion fired before the snapshot was available");
+            }
+        });
+        check("desktop changes during a scan force fresh visibility checks instead of accepting an old clean snapshot", () =>
+        {
+            var d = new Desktop(); var c = new LayoutController(new Layout(), state => { });
+            c.EnableUnified(); c.Create(d, Group("one"), screens); c.AddMembers(d, "one", new[] { "item0" });
+            var snapshot = new DesktopSnapshot { Items = d.Items(), Origin = d.Origin };
+            for (int refresh = 0; refresh < 5; refresh++)
+            {
+                d.Data[0].Position = new Point(40 + refresh * 100, 40);
+                d.IconsVisible = true;
+                Assert(!snapshot.NeedsSync(c.State, screens), "test snapshot should still report native drawing disabled");
+                Assert(snapshot.NeedsSync(c.State, screens, true), "new desktop event accepted an obsolete snapshot");
+                Assert(c.Sync(d) && !d.IconsVisible && d.Writes == 0,
+                    "fresh sync did not repair the latest refresh");
+            }
+            Assert(c.State.Members.Count == 1 && c.State.PendingPositions == null, "refresh damaged layout");
+        });
         check("unchanged drag feedback does not repaint every mouse movement", () =>
         {
             using (var canvas = new IconCanvas())
@@ -439,13 +684,14 @@ internal static class UnifiedChecks
                 canvas.AcceptLeave(); Assert(invalidations > first, "leave did not clear feedback");
             }
         });
-        check("desktop snapshot detects rename, replacement and movement without mutating layout", () =>
+        check("desktop snapshot detects identity and visibility changes but ignores native reflow", () =>
         {
             var d = new Desktop(); var c = new LayoutController(new Layout(), state => { });
             c.EnableUnified(); c.Create(d, Group("one"), screens); c.AddMembers(d, "one", new[] { "item0" });
             var snapshot = new DesktopSnapshot { Items = d.Items(), Origin = d.Origin };
             Assert(!snapshot.NeedsSync(c.State, screens), "unchanged snapshot triggered writes");
-            snapshot.Items[0].Position = Point.Empty; Assert(snapshot.NeedsSync(c.State, screens), "movement missed");
+            snapshot.Items[0].Position = Point.Empty; Assert(!snapshot.NeedsSync(c.State, screens), "native reflow requested redundant movement");
+            snapshot.IconsVisible = true; Assert(snapshot.NeedsSync(c.State, screens), "native visibility change missed"); snapshot.IconsVisible = false;
             snapshot.Items = d.Items(); snapshot.Items[0].Id = "ITEM0"; Assert(snapshot.NeedsSync(c.State, screens), "case-only rename missed");
             snapshot.Items = d.Items(); snapshot.Items[0].Id = "renamed"; Assert(snapshot.NeedsSync(c.State, screens), "rename missed");
             snapshot.Items = d.Items(); snapshot.Items[0].Identity = "replacement"; Assert(snapshot.NeedsSync(c.State, screens), "replacement missed");

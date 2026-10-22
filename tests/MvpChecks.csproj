@@ -33,5 +33,6 @@
     <Compile Include="../src/DesktopTidyLight/DesktopDrop.cs" />
     <Compile Include="../src/DesktopTidyLight/GroupFrame.cs" />
     <Compile Include="../src/DesktopTidyLight/DesktopShell.cs" />
+    <Compile Include="../src/DesktopTidyLight/ShellContextMenu.cs" />
   </ItemGroup>
 </Project>

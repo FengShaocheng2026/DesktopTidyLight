@@ -12,7 +12,7 @@ Download the latest portable ZIP from [Releases](https://github.com/FengShaochen
 - Resize, move, overlap, and lock groups. Choose from four styles and adjust background transparency, title visibility, and startup at sign-in.
 - Groups and icon order are saved automatically. A normal exit restores the regular desktop; the groups return when you start the app again.
 
-While the app runs, it draws the icons inside each group and temporarily parks their original desktop icons off-screen. A normal exit restores their positions and the Windows auto-arrange and grid-alignment settings. Exit through the tray menu. After an unexpected shutdown, restart the app or run `DesktopTidyLight.exe --restore` to restore the regular desktop.
+Version 0.1.5 disables native desktop icon drawing while groups are active and renders both grouped and ungrouped icons itself. Ungrouped icons retain their desktop positions, and refreshing no longer relies on moving native icons off-screen. A normal exit restores positions, visibility, auto-arrange and grid alignment. Exit through the tray menu. After an unexpected shutdown, restart the app or run `DesktopTidyLight.exe --restore`.
 
 Configuration is stored in `%LOCALAPPDATA%\DesktopTidyLight` and is not included in the portable ZIP. Exit the old version before replacing its files. Before uninstalling, run `DesktopTidyLight.exe --unregister` to remove the app's desktop menu and startup entry, then delete the program folder. You may keep or remove your personal configuration.
 
@@ -40,7 +40,7 @@ The default checks do not modify your real desktop. The packaging script writes 
 ## Documentation
 
 - [Architecture and recovery](docs/architecture.md) (Chinese)
-- [0.1.2 verification scope](docs/release-0.1.2.md) (Chinese)
+- [Current release verification scope](docs/release-0.1.5.md) (Chinese)
 - [Performance checks](docs/performance-2026-10-12.md) (Chinese)
 
 ## Known limitations

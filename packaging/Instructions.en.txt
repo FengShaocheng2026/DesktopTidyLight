@@ -3,6 +3,7 @@ Desktop Tidy Light {VERSION} - Windows x64
 Requires Windows 11 and .NET Framework 4.8. Extract the entire ZIP and run DesktopTidyLight.exe.
 Right-click the desktop to create a group, then drag desktop icons into or out of it.
 Settings are saved automatically. Exiting from the tray restores the regular desktop; restarting restores the groups.
+While groups are active, the app renders grouped and ungrouped icons with native desktop icons hidden. After an unexpected shutdown, restart the app or run DesktopTidyLight.exe --restore to restore the desktop.
 Before uninstalling, exit from the tray and run DesktopTidyLight.exe --unregister to remove the desktop menu and startup entry.
 Personal settings are stored in %LOCALAPPDATA%\DesktopTidyLight and are not included in this ZIP.
 

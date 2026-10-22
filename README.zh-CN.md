@@ -12,7 +12,7 @@ Windows 11 桌面分组工具。把已经显示在桌面上的文件、文件夹
 - 可缩放、移动、重叠和锁定分组；支持四种外观、背景透明度、标题自动隐藏和登录启动。
 - 自动保存分组与成员顺序。正常退出时恢复普通桌面，再次启动后恢复分组。
 
-运行时，原始桌面图标会临时停放到屏幕外，分组中的图标由程序绘制。正常退出时会恢复图标位置及 Windows 的自动排列、对齐网格设置。请通过托盘菜单退出程序；异常结束后可重新启动，或运行 `DesktopTidyLight.exe --restore` 恢复普通桌面。
+0.1.5 在运行分组时关闭 Windows 原生图标绘制，分组和未分组图标由程序显示，避免刷新时原图标重新闪现；未分组图标保持桌面位置。正常退出时会恢复图标位置、显示状态及 Windows 的自动排列、对齐网格设置。请通过托盘菜单退出程序；异常结束后可重新启动，或运行 `DesktopTidyLight.exe --restore` 恢复普通桌面。
 
 配置保存在 `%LOCALAPPDATA%\DesktopTidyLight`，不包含在便携包中。升级前先退出旧版，再替换程序文件。卸载前运行 `DesktopTidyLight.exe --unregister`，清除本程序的桌面菜单和自启动项，然后删除程序目录；个人配置可按需保留。
 
@@ -40,7 +40,7 @@ powershell -NoProfile -File packaging/Package.ps1
 ## 项目文档
 
 - [架构与恢复机制](docs/architecture.md)
-- [当前版本验证范围](docs/release-0.1.4.md)
+- [当前版本验证范围](docs/release-0.1.5.md)
 - [性能检查](docs/performance-2026-10-12.md)
 
 ## 已知限制

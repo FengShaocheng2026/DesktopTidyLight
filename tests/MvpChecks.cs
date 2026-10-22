@@ -18,6 +18,8 @@ internal static class MvpChecks
         internal readonly List<string> Selection = new List<string>();
         public IList<string> SelectedIds() { return Selection; }
         public int PositioningFlags { get; set; }
+        public bool IconsVisible { get; private set; } = true;
+        public void SetIconsVisible(bool visible) { IconsVisible = visible; }
         public Point Origin { get; set; }
         public Size Spacing { get; set; } = new Size(100, 100);
         public int IconSize { get { return Spacing.Width; } }
@@ -106,8 +108,7 @@ internal static class MvpChecks
             using (var shell = new DesktopShell())
             {
                 var items = shell.Items(); var work = screens.Select(s => s.WorkingArea).ToArray();
-                var desired = LayoutController.Parking(layout, items, shell.Origin, work);
-                Console.WriteLine("DESKTOP origin=" + shell.Origin + " flags=" + shell.PositioningFlags + " items=" + items.Count + " members=" + layout.Members.Count + " session=" + layout.SessionActive + " pending=" + (layout.PendingPositions != null) + " misplaced=" + desired.Count);
+                Console.WriteLine("DESKTOP origin=" + shell.Origin + " flags=" + shell.PositioningFlags + " iconsVisible=" + shell.IconsVisible + " items=" + items.Count + " members=" + layout.Members.Count + " session=" + layout.SessionActive + " pending=" + (layout.PendingPositions != null));
                 foreach (var item in items)
                 {
                     bool member = layout.Members.Any(m => m.Id == item.Id);
@@ -131,6 +132,8 @@ internal static class MvpChecks
         if (args.Length == 1 && args[0] == "--shell-many") return ShellSmokeCheck.Run(21);
         if (args.Length == 1 && args[0] == "--performance") return PerformanceChecks.Run();
         if (args.Length == 1 && args[0] == "--unified-render") return UnifiedChecks.Render();
+        if (args.Length == 1 && args[0] == "--native-visibility") return UnifiedChecks.NativeVisibility();
+        if (args.Length == 1 && args[0] == "--managed-refresh-check") return UnifiedChecks.NativeVisibility(true);
         if (args.Length == 1 && args[0] == "--unified-shell") return ShellSmokeCheck.Run(7, true);
         if (args.Length == 1 && args[0] == "--shell-smoke") return ShellSmokeCheck.Run();
         try

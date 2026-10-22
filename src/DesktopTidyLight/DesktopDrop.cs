@@ -17,9 +17,12 @@ namespace DesktopTidyLight
         internal static bool ShouldReturn(bool escape, int keyState, bool overDesktop)
         { return !escape && (keyState & 3) == 0 && overDesktop; }
 
-        internal static bool IsDesktop(Point point)
+        internal static bool IsDesktop(Point point, bool includeManaged = true)
         {
             var window = WindowFromPoint(point); string child = Class(window), root = Class(GetAncestor(window, 2));
+            var control = System.Windows.Forms.Control.FromHandle(GetAncestor(window, 2));
+            var surface = control as GroupFrame ?? control?.Tag as GroupFrame;
+            if (includeManaged && surface != null && surface.IsDesktopSurface) return true;
             return (root == "Progman" || root == "WorkerW") &&
                 (child == "SysListView32" || child == "SHELLDLL_DefView" || child == "Progman" || child == "WorkerW");
         }
@@ -30,7 +33,8 @@ namespace DesktopTidyLight
             var screen = screens.FirstOrDefault(s => s.Contains(dropPoint));
             if (screen.IsEmpty) throw new InvalidOperationException("请放到屏幕内的普通桌面上。");
             var selected = new HashSet<string>(members.Select(m => m.Id), StringComparer.OrdinalIgnoreCase);
-            var occupied = items.Where(i => !selected.Contains(i.Id)).Select(i =>
+            var grouped = new HashSet<string>(layout.Members.Select(m => m.Id), StringComparer.OrdinalIgnoreCase);
+            var occupied = items.Where(i => !selected.Contains(i.Id) && !grouped.Contains(i.Id)).Select(i =>
             { var r = GridLayout.ItemBounds(i.Position, spacing, iconSize); r.Offset(origin); return r; }).ToList();
             occupied.AddRange(layout.Groups.Select(GridLayout.Bounds));
             var cells = GridLayout.Slots(screen, spacing).Select(p => new Rectangle(p, spacing))

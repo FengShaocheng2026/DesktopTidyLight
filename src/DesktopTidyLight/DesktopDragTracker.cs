@@ -16,6 +16,11 @@ namespace DesktopTidyLight
         private IntPtr hook;
         private Point? pressed, released;
         private long expires;
+        internal Point? SelectionStart { get; private set; }
+        internal Point SelectionEnd { get; private set; }
+        internal bool Selecting { get; private set; }
+        internal int SelectionVersion { get; private set; }
+        internal event Action SelectionChanged;
         internal Point? ReleasePoint { get { return Stopwatch.GetTimestamp() < expires ? released : null; } }
         internal DesktopDragTracker()
         {
@@ -28,6 +33,13 @@ namespace DesktopTidyLight
             if (code >= 0)
             {
                 int kind = message.ToInt32();
+                var cursor = new Point(Marshal.ReadInt32(data), Marshal.ReadInt32(data, 4));
+                if (kind == 0x201 && DesktopDrop.IsDesktop(cursor, false))
+                { SelectionStart = SelectionEnd = cursor; Selecting = true; SelectionVersion++; SelectionChanged?.Invoke(); }
+                else if (Selecting && (kind == 0x200 || kind == 0x202))
+                { SelectionEnd = cursor; Selecting = kind != 0x202; SelectionChanged?.Invoke(); }
+                else if (kind == 0x204 && Selecting)
+                { Selecting = false; SelectionStart = null; SelectionChanged?.Invoke(); }
                 if (kind == 0x201 || kind == 0x202)
                 {
                     var point = new Point(Marshal.ReadInt32(data), Marshal.ReadInt32(data, 4));
@@ -44,6 +56,6 @@ namespace DesktopTidyLight
             return CallNextHookEx(hook, code, message, data);
         }
         internal void Clear() { released = null; }
-        public void Dispose() { if (hook != IntPtr.Zero) { UnhookWindowsHookEx(hook); hook = IntPtr.Zero; } }
+        public void Dispose() { if (hook != IntPtr.Zero) { UnhookWindowsHookEx(hook); hook = IntPtr.Zero; } SelectionChanged = null; }
     }
 }

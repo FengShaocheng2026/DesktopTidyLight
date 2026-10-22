@@ -40,7 +40,7 @@ namespace DesktopTidyLight
             var position = (WindowPosition)Marshal.PtrToStructure(message.LParam, typeof(WindowPosition));
             if ((position.Flags & 0x4) != 0) return; // SWP_NOZORDER
             // Re-anchor instead of freezing an already incorrect position in the window stack.
-            position.After = background ? Handle : desktopOwner;
+            position.After = background ? Handle : OrderAnchor;
             position.Flags |= 0x200; // SWP_NOOWNERZORDER
             Marshal.StructureToPtr(position, message.LParam, false);
         }
@@ -52,6 +52,10 @@ namespace DesktopTidyLight
         }
 
         private readonly GroupData data;
+        internal bool IsDesktopSurface { get; private set; }
+        internal IntPtr DesktopOrderAfter { get; set; }
+        private IntPtr OrderAnchor { get { return DesktopOrderAfter == IntPtr.Zero ? desktopOwner : DesktopOrderAfter; } }
+        internal IntPtr BottomWindow { get { return backgroundLayer == null ? Handle : backgroundLayer.Handle; } }
         private readonly Timer previewTimer = new Timer { Interval = 16 };
         private readonly ContextMenuStrip menu;
         private readonly IconCanvas canvas = new IconCanvas();
@@ -60,7 +64,7 @@ namespace DesktopTidyLight
         private string appliedSkin;
         private int transparency;
         private BackgroundLayer backgroundLayer;
-        private int HeaderPixels { get { return (int)(Theme.HeaderHeight * DeviceDpi / 96f); } }
+        private int HeaderPixels { get { return IsDesktopSurface ? 0 : (int)(Theme.HeaderHeight * DeviceDpi / 96f); } }
         internal IconCanvas Icons { get { return canvas; } }
         private IntPtr desktopOwner;
         private Point dragStart;
@@ -99,13 +103,14 @@ namespace DesktopTidyLight
             get { var p = base.CreateParams; p.ExStyle |= 0x80; return p; }
         }
 
-        internal GroupFrame(GroupData data)
+        internal GroupFrame(GroupData data, bool desktopSurface = false)
         {
             this.data = data;
+            IsDesktopSurface = desktopSurface;
             FormBorderStyle = FormBorderStyle.None; ShowInTaskbar = false;
             StartPosition = FormStartPosition.Manual;
             AutoScaleMode = AutoScaleMode.None;
-            MinimumSize = new Size(240, 180);
+            MinimumSize = desktopSurface ? new Size(1, 1) : new Size(240, 180);
             BackColor = Theme.Background; Font = Theme.BodyFont;
             DoubleBuffered = true; KeyPreview = true;
             Bounds = GridLayout.Bounds(data);
@@ -157,6 +162,11 @@ namespace DesktopTidyLight
 
         private void UpdateRegion()
         {
+            if (IsDesktopSurface)
+            {
+                var old = Region; Region = canvas.ItemRegion(); old?.Dispose();
+                backgroundLayer?.UpdateShape(); return;
+            }
             if (Width < 20 || Height < 60) return;
             using (var shape = Theme.Rounded(new RectangleF(0, 0, Width, Height), Theme.CornerRadius * DeviceDpi / 96f))
             {
@@ -169,6 +179,7 @@ namespace DesktopTidyLight
         private void LayoutCanvas()
         {
             if (canvas == null) return;
+            if (IsDesktopSurface) { canvas.Bounds = ClientRectangle; return; }
             int edge = Math.Max(5, (int)(5 * DeviceDpi / 96f));
             canvas.Bounds = new Rectangle(edge, HeaderPixels, Math.Max(1, ClientSize.Width - edge * 2), Math.Max(1, ClientSize.Height - HeaderPixels - edge));
         }
@@ -187,6 +198,7 @@ namespace DesktopTidyLight
         }
         internal void ApplyPreferences(bool autoHide, int backgroundTransparency = 0)
         {
+            if (IsDesktopSurface) { autoHide = false; backgroundTransparency = 100; }
             if (appliedSkin == Theme.Skin && autoHideTitle == autoHide && transparency == backgroundTransparency) return;
             appliedSkin = Theme.Skin;
             transparency = Math.Max(0, Math.Min(100, backgroundTransparency));
@@ -211,7 +223,7 @@ namespace DesktopTidyLight
         {
             uint flags = 0x10 | 0x200;
             if (Size != bounds.Size) flags |= 0x100; // SWP_NOCOPYBITS: never stretch/copy an old border into a resized frame.
-            if (desktopOwner == IntPtr.Zero || !SetWindowPos(Handle, desktopOwner, bounds.X, bounds.Y, bounds.Width, bounds.Height, flags))
+            if (desktopOwner == IntPtr.Zero || !SetWindowPos(Handle, OrderAnchor, bounds.X, bounds.Y, bounds.Width, bounds.Height, flags))
                 throw new System.ComponentModel.Win32Exception("无法定位桌面分组框。");
             if (backgroundLayer != null)
                 SetWindowPos(backgroundLayer.Handle, Handle, bounds.X, bounds.Y, bounds.Width, bounds.Height, flags);
@@ -220,7 +232,7 @@ namespace DesktopTidyLight
         internal void RestoreDesktopOrder()
         {
             if (desktopOwner == IntPtr.Zero || !IsHandleCreated) return;
-            if (!SetWindowPos(Handle, desktopOwner, 0, 0, 0, 0, 0x13 | 0x200))
+            if (!SetWindowPos(Handle, OrderAnchor, 0, 0, 0, 0, 0x13 | 0x200))
                 throw new System.ComponentModel.Win32Exception("无法恢复桌面分组层级。");
             if (backgroundLayer != null)
                 SetWindowPos(backgroundLayer.Handle, Handle, 0, 0, 0, 0, 0x13 | 0x200);
@@ -257,7 +269,7 @@ namespace DesktopTidyLight
             [DllImport("user32.dll")] private static extern IntPtr SendMessage(IntPtr window, int message, IntPtr wParam, IntPtr lParam);
             internal BackgroundLayer(GroupFrame frame)
             {
-                this.frame = frame; FormBorderStyle = FormBorderStyle.None; ShowInTaskbar = false;
+                this.frame = frame; Tag = frame; FormBorderStyle = FormBorderStyle.None; ShowInTaskbar = false;
                 StartPosition = FormStartPosition.Manual; AutoScaleMode = AutoScaleMode.None; AllowDrop = true;
                 DragEnter += (s, e) => frame.canvas.AcceptDrag(e);
                 DragOver += (s, e) => frame.canvas.AcceptDrag(e);
@@ -268,6 +280,8 @@ namespace DesktopTidyLight
             protected override CreateParams CreateParams { get { var p = base.CreateParams; p.ExStyle |= 0x80 | 0x08000000; return p; } }
             internal void UpdateShape()
             {
+                if (frame.IsDesktopSurface)
+                { var previous = Region; Region = frame.canvas.ItemRegion(); previous?.Dispose(); return; }
                 using (var shape = Theme.Rounded(new RectangleF(0, 0, Width, Height), Theme.CornerRadius * frame.DeviceDpi / 96f))
                 { var old = Region; Region = new Region(shape); old?.Dispose(); }
             }
@@ -309,6 +323,7 @@ namespace DesktopTidyLight
 
         protected override void OnPaint(PaintEventArgs args)
         {
+            if (IsDesktopSurface) return;
             float scale = DeviceDpi / 96f;
             args.Graphics.ScaleTransform(scale, scale);
             Theme.PaintContainer(args.Graphics, new Size((int)(ClientSize.Width / scale), (int)(ClientSize.Height / scale)), data.Name ?? "新建分组", count, moreHover, dragging, hint, true, headerVisible, transparency > 0);
@@ -317,6 +332,7 @@ namespace DesktopTidyLight
         protected override void OnMouseDown(MouseEventArgs args)
         {
             base.OnMouseDown(args);
+            if (IsDesktopSurface) return;
             if (args.Button == MouseButtons.Right && args.Y < HeaderPixels) { menu.Show(this, args.Location); return; }
             if (args.Button != MouseButtons.Left) return;
             if (new Rectangle(Width - (int)(40 * DeviceDpi / 96f), 4, (int)(32 * DeviceDpi / 96f), HeaderPixels - 8).Contains(args.Location)) { menu.Show(this, new Point(Width - (int)(40 * DeviceDpi / 96f), HeaderPixels)); return; }
@@ -331,6 +347,7 @@ namespace DesktopTidyLight
         protected override void OnMouseMove(MouseEventArgs args)
         {
             base.OnMouseMove(args);
+            if (IsDesktopSurface) { Cursor = Cursors.Default; return; }
             if (!dragging)
             {
                 bool hover = new Rectangle(Width - (int)(40 * DeviceDpi / 96f), 4, (int)(32 * DeviceDpi / 96f), HeaderPixels - 8).Contains(args.Location);
@@ -394,6 +411,19 @@ namespace DesktopTidyLight
             data.Locked = source.Locked;
             var bounds = GridLayout.Bounds(source);
             if (ScreenBounds != bounds) SetScreenBounds(bounds); else if (renamed) Invalidate();
+        }
+
+        internal void SetDesktopItems(System.Collections.Generic.IEnumerable<DesktopItem> items, Point origin, Size spacing, int iconSize)
+        {
+            canvas.SetDesktopItems(items, new Point(origin.X - Left, origin.Y - Top), spacing, iconSize);
+            UpdateRegion();
+        }
+
+        internal void SetDesktopSelection(Rectangle? screenArea, bool active)
+        {
+            Rectangle? local = screenArea;
+            if (screenArea.HasValue) { var value = screenArea.Value; value.Offset(-Left, -Top); local = value; }
+            canvas.SetDesktopSelection(local, active); UpdateRegion();
         }
 
         protected override void Dispose(bool disposing)

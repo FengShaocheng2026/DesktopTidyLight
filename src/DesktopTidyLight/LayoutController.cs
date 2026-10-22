@@ -5,6 +5,11 @@ using System.Linq;
 
 namespace DesktopTidyLight
 {
+    internal sealed class DesktopNotReadyException : InvalidOperationException
+    {
+        internal DesktopNotReadyException() : base("桌面列表正在刷新，暂时保留分组记录并等待重试。") { }
+    }
+
     internal sealed class RecoveryRequiredException : Exception
     {
         internal bool CanRetry { get; private set; }
@@ -56,6 +61,9 @@ namespace DesktopTidyLight
                     (matches.Count == 1 ? matches[0] : null);
                 if (match == null)
                 {
+                    // Explorer may briefly omit an existing file while rebuilding its view.
+                    if (atPath == null && member.Identity != null && System.IO.Path.IsPathRooted(member.Id) &&
+                        DesktopShell.FileIdentity(member.Id) == member.Identity) throw new DesktopNotReadyException();
                     next.Members.Remove(member);
                     Notice = "已移除不存在或身份无法确认的成员记录，未操作对应文件；旧版成员可重新拖入分组。";
                 }
@@ -91,7 +99,7 @@ namespace DesktopTidyLight
         }
 
         private void Apply(IDesktopView desktop, Layout next, IDictionary<string, Point> targets,
-            int finalFlags, IDictionary<string, Point> rollbackOverrides = null)
+            int finalFlags, IDictionary<string, Point> rollbackOverrides = null, bool? finalVisibility = null)
         {
             if (State.PendingPositions != null) throw new InvalidOperationException("请先恢复上次未完成的操作。");
             var items = desktop.Items();
@@ -108,17 +116,21 @@ namespace DesktopTidyLight
                     if (rollbackOverrides.TryGetValue(point.Id, out value)) { point.X = value.X; point.Y = value.Y; }
                 }
             journal.PendingFlags = desktop.PositioningFlags;
+            journal.PendingIconsVisible = finalVisibility.HasValue ? (bool?)desktop.IconsVisible : null;
             try { save(journal); }
             catch (Exception error) { throw new RecoveryRequiredException("保存恢复记录失败，已停止修改桌面。", error); }
             State = journal;
             try
             {
+                if (finalVisibility == false && desktop.IconsVisible) desktop.SetIconsVisible(false);
                 if (targets.Count > 0 && desktop.PositioningFlags != 0) desktop.SetPositioningFlags(0);
                 MoveChecked(desktop, targets, items);
                 if (desktop.PositioningFlags != finalFlags) desktop.SetPositioningFlags(finalFlags);
+                if (finalVisibility == true && !desktop.IconsVisible) desktop.SetIconsVisible(true);
                 next.Snapshots = Snapshot(desktop.Items());
                 next.PendingPositions = null;
                 next.PendingFlags = null;
+                next.PendingIconsVisible = null;
                 save(next);
                 State = next;
             }
@@ -157,9 +169,12 @@ namespace DesktopTidyLight
             MoveChecked(desktop, targets, items);
             if (State.PendingFlags.HasValue && desktop.PositioningFlags != State.PendingFlags.Value)
                 desktop.SetPositioningFlags(State.PendingFlags.Value);
+            if (State.PendingIconsVisible.HasValue && desktop.IconsVisible != State.PendingIconsVisible.Value)
+                desktop.SetIconsVisible(State.PendingIconsVisible.Value);
             var recovered = State.Copy();
             recovered.PendingPositions = null;
             recovered.PendingFlags = null;
+            recovered.PendingIconsVisible = null;
             recovered.Snapshots = Snapshot(desktop.Items());
             save(recovered);
             State = recovered;
@@ -351,10 +366,11 @@ namespace DesktopTidyLight
                 next.Groups.RemoveAll(g => g.Id == deleteGroup);
             }
             bool finish = deleteGroup == null || next.Groups.Count == 0;
+            bool? visibility = finish ? next.OriginalIconsVisible : null;
             int flags = finish ? next.OriginalFolderFlags ?? desktop.PositioningFlags :
                 State.SessionActive || State.OriginalFolderFlags.HasValue ? 0 : desktop.PositioningFlags;
-            if (finish) { next.OriginalFolderFlags = null; next.SessionActive = false; }
-            Apply(desktop, next, targets, flags);
+            if (finish) { next.OriginalFolderFlags = null; next.OriginalIconsVisible = null; next.SessionActive = false; }
+            Apply(desktop, next, targets, flags, finalVisibility: visibility);
         }
     }
 }
