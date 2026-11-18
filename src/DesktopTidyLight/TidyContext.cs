@@ -38,7 +38,7 @@ namespace DesktopTidyLight
         private bool mouseWasDown;
         private long nextSync;
         private long retryAfter;
-        private Rectangle[] knownScreens = new Rectangle[0];
+        private DisplayInfo[] knownDisplays = new DisplayInfo[0];
         private readonly DesktopScan scan = new DesktopScan();
         private readonly DesktopEvents desktopEvents = new DesktopEvents();
         private long scannedRevision;
@@ -98,7 +98,7 @@ namespace DesktopTidyLight
         private void RememberEnvironment(DesktopShell desktop)
         {
             origin = desktop.Origin; spacing = desktop.Spacing; iconSize = desktop.IconSize; environmentChanged = false;
-            knownScreens = Screens(); retryAfter = 0;
+            knownDisplays = DisplayLayout.Capture(); retryAfter = 0;
             viewWindow = desktop.ViewWindow; explorerProcessId = desktop.ProcessId;
             try { desktopEvents.Watch(viewWindow, explorerProcessId); }
             catch (System.ComponentModel.Win32Exception error)
@@ -178,6 +178,7 @@ namespace DesktopTidyLight
                 if (!mouseWasDown && !environmentChanged && scannedRevision == desktopEvents.Revision && now < nextSync) return;
                 if (scan.Start())
                 {
+                    environmentChanged = false;
                     scannedLayout = controller.State; mouseWasDown = false;
                     scannedRevision = desktopEvents.Revision;
                     nextSync = now + System.Diagnostics.Stopwatch.Frequency * 3;
@@ -191,9 +192,11 @@ namespace DesktopTidyLight
             {
                 if (snapshot.Error != null) throw snapshot.Error;
                 iconSize = snapshot.IconSize;
+                var displays = DisplayLayout.Capture();
                 bool detached = frames.Count != controller.State.Groups.Count || frames.Concat(desktopFrames).Any(f => f.IsDisposed || !f.IsAttachedToDesktop());
                 bool restarted = viewWindow != IntPtr.Zero && (snapshot.ViewWindow != viewWindow || snapshot.ProcessId != explorerProcessId);
-                bool reset = snapshot.Flags != 0 || restarted || detached || environmentChanged || snapshot.Origin != origin || snapshot.Spacing != spacing || !knownScreens.SequenceEqual(Screens());
+                // Creating or moving a window can raise DPI notifications without changing the displays.
+                bool reset = snapshot.Flags != 0 || restarted || detached || snapshot.Origin != origin || snapshot.Spacing != spacing || !DisplayLayout.SameConfiguration(knownDisplays, displays);
                 var visibleItems = snapshot.Items;
                 if (reset || snapshot.NeedsSync(controller.State, Screens(), scannedRevision != desktopEvents.Revision))
                 {
@@ -203,8 +206,9 @@ namespace DesktopTidyLight
                     {
                         if (reset)
                         {
-                            controller.Start(desktop, Screens()); HideFrames();
-                            controller.SaveMonitors(DisplayLayout.Capture()); RememberEnvironment(desktop);
+                            controller.Start(desktop, Screens());
+                            if (restarted || detached) HideFrames();
+                            controller.SaveMonitors(displays); RememberEnvironment(desktop);
                             RefreshFrames();
                         }
                         else if (controller.Sync(desktop)) RefreshFrames();

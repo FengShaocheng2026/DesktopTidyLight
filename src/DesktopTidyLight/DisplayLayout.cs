@@ -42,6 +42,12 @@ namespace DesktopTidyLight
             }).ToArray();
         }
 
+        internal static bool SameConfiguration(DisplayInfo[] previous, DisplayInfo[] current)
+        {
+            return previous.Length == current.Length && previous.All(a =>
+                current.Any(b => a.Id == b.Id && a.Work == b.Work && a.Dpi == b.Dpi));
+        }
+
         internal static Rectangle Clamp(Rectangle bounds, Rectangle work)
         {
             int w = Math.Min(bounds.Width, work.Width), h = Math.Min(bounds.Height, work.Height);

@@ -1,6 +1,6 @@
 # 当前架构
 
-版本：0.1.5。C# / WinForms / .NET Framework 4.8，Windows x64。
+版本：0.1.6。C# / WinForms / .NET Framework 4.8，Windows x64。
 
 ## 图标与桌面
 
@@ -24,7 +24,7 @@
 
 ## 显示器与持久化
 
-`DisplayLayout` 保存显示器身份、工作区、缩放和首选位置。临时移除显示器时将分组约束到可见区域，保留原显示器记录。`TidyContext` 同时监听环境变化、检查桌面窗口是否重建并比较屏幕工作区。
+`DisplayLayout` 保存显示器身份、工作区、缩放和首选位置。临时移除显示器时将分组约束到可见区域，保留原显示器记录。`TidyContext` 收到环境通知时唤醒检查，以实际显示器身份、工作区和 DPI 判断是否需要更新布局；窗口创建或移动自身产生的 DPI 通知不再单独触发布局重置。分辨率或缩放变化时复用已有分组及桌面画布，只有 Explorer 重启或窗口脱离桌面时才销毁重建。
 
 配置位于 `%LOCALAPPDATA%\DesktopTidyLight\layout.json`，使用原子替换和内部备份。`last-notice.txt` 仅记录最近一次通知，不持续增长。不提供用户手动备份导入或撤销界面。
 

@@ -98,6 +98,24 @@ internal static class UnifiedChecks
     {
         int count = 0;
         Action<string, Action> check = (name, test) => { test(); count++; Console.WriteLine("PASS unified: " + name); };
+        check("display notifications settle on identical geometry while resolution, DPI and reconnect changes are detected", () =>
+        {
+            var a = new DisplayInfo { Id = "primary", Work = new Rectangle(0, 0, 3840, 2076), Dpi = 168 };
+            var b = new DisplayInfo { Id = "secondary", Work = new Rectangle(-2160, 0, 2160, 3732), Dpi = 216 };
+            var known = new[] { a, b };
+            for (int pass = 0; pass < 5; pass++)
+                Assert(DisplayLayout.SameConfiguration(known, new[] {
+                    new DisplayInfo { Id = b.Id, Work = b.Work, Dpi = b.Dpi },
+                    new DisplayInfo { Id = a.Id, Work = a.Work, Dpi = a.Dpi } }), "unchanged displays requested another reset");
+            Assert(!DisplayLayout.SameConfiguration(known, new[] { a }), "disconnect ignored");
+            Assert(!DisplayLayout.SameConfiguration(new[] { a }, known), "reconnect ignored");
+            Assert(!DisplayLayout.SameConfiguration(known, new[] { b,
+                new DisplayInfo { Id = a.Id, Work = new Rectangle(0, 0, 1920, 1032), Dpi = a.Dpi } }), "resolution change ignored");
+            Assert(!DisplayLayout.SameConfiguration(known, new[] { b,
+                new DisplayInfo { Id = a.Id, Work = a.Work, Dpi = 192 } }), "DPI-only change ignored");
+            Assert(!DisplayLayout.SameConfiguration(known, new[] { b,
+                new DisplayInfo { Id = "replacement", Work = a.Work, Dpi = a.Dpi } }), "replacement display ignored");
+        });
         check("native icons stay hidden through refreshes and restore their original visibility after restart", () =>
         {
             foreach (bool visible in new[] { true, false })
